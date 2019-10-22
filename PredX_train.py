@@ -5,7 +5,8 @@ import numpy as np
 from sklearn.metrics.pairwise import euclidean_distances
 import sys, gc, os
 import PredX_MPNN as MPNN
-import sparse
+#import scipy
+#from scipy import sparse
 import argparse
 import getpass
 from test_tube import HyperOptArgumentParser, Experiment
@@ -21,7 +22,7 @@ def data_path():
     if getpass.getuser() == "em3382":
         return "/scratch/em3382/seokho_drive_datasets/"
     else:
-        return "./"
+        return "data/"
 
 def train(args, exp=None):
 
@@ -32,8 +33,8 @@ def train(args, exp=None):
         if args.virtual_node is True:
             n_max += 1
             dim_edge += 1
-        nval = 3000
-        ntst = 3000
+        nval = 300
+        ntst = 300
     elif args.data == 'QM9':
         n_max = 9
         dim_node = 22
@@ -110,7 +111,13 @@ def train(args, exp=None):
             else:
                 [D1, D2, D3, D4, D5] = pkl.load(open('CSD_mol/CSD_molvec_tst.p', 'rb'))
     else:
+        print(molvec_fname)
         [D1, D2, D3, D4, D5] = pkl.load(open(molvec_fname,'rb'))
+        print(D1.shape)
+        print(D2.shape)
+        print(D3.shape)
+        print(D4.shape)
+        print(D5.shape)
     D1 = D1.todense()
     D2 = D2.todense()
     D3 = D3.todense()
@@ -125,9 +132,11 @@ def train(args, exp=None):
         molsup = None
     else:
         ntrn = len(D5)-nval-ntst
-
+        print(molset_fname)
         [molsup, molsmi] = pkl.load(open(molset_fname,'rb'))
-
+        print(molsup.shape)
+        print(molsmi.shape)
+        print(ntrn)
         D1_trn = D1[:ntrn]
         D2_trn = D2[:ntrn]
         D3_trn = D3[:ntrn]
@@ -225,7 +234,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Train network')
 
-    parser.add_argument('--data', type=str, default='QM9', choices=['COD', 'QM9', 'CSD'])
+    parser.add_argument('--data', type=str, default='COD', choices=['COD', 'QM9', 'CSD'])
     parser.add_argument('--ckptdir', type=str, default='./checkpoints/')
     parser.add_argument('--eventdir', type=str, default='./events/')
     parser.add_argument('--savepreddir', type=str, default=None,

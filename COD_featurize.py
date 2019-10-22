@@ -10,9 +10,10 @@ import sparse
 import argparse
 parser = argparse.ArgumentParser()
 
-parser.add_argument('--virtual-node', action='store_true')
+parser.add_argument('--virtual_node', action='store_true')
 parser.add_argument('--loaddir', type=str, default='./')
 parser.add_argument('--savedir', type=str, default='./')
+
 
 args = parser.parse_args()
 
@@ -83,9 +84,13 @@ virtual_node = args.virtual_node
 print(virtual_node, flush=True)
 if virtual_node:
     edge_dim += 1
+    
+filename = 'CODconh25.p'
+filepath = args.loaddir + filename
 
-[mollist, smilist] = pkl.load(open(args.loaddir+data+'_molset_all.p','rb'))
-
+#[mollist, smilist] = pkl.load(open(args.loaddir+data+'_molset_all.p','rb'))
+[mollist, smilist] = pkl.load(open(filepath,'rb'))
+max_mol = 2000
 D1 = []
 D2 = []
 D3 = []
@@ -94,7 +99,7 @@ D5 = []
 mollist2 = []
 smilist2 = []
 print(len(mollist), flush=True)
-for i in range(len(mollist)):
+for i in range(max_mol):
     if i % 1000 == 0: print(i, flush=True)
 
     smi = smilist[i]
@@ -182,9 +187,6 @@ for i in range(len(mollist)):
     D4.append(np.array(proximity))
     D5.append(np.array(pos2))
 
-    #if len(D1)==66000:
-    #    break
-
 D1 = np.array(D1, dtype=int)
 D2 = np.array(D2, dtype=int)
 D3 = np.array(D3, dtype=int)
@@ -201,10 +203,10 @@ D3 = sparse.COO.from_numpy(D3)
 print([D1.nbytes, D3.nbytes])
 
 if virtual_node:
-    molvec_fname = args.savedir + data+'_molvec_'+str(n_max)+'_vn.p'
+    molvec_fname = args.savedir + data +'_molvec_'+str(n_max)+'_vn.p'
     molset_fname = args.savedir + data + '_molset_' + str(n_max) + '_vn.p'
 else:
-    molvec_fname = args.savedir + data+'_molvec_'+str(n_max)+'.p'
+    molvec_fname = args.savedir + data +'_molvec_'+str(n_max)+'.p'
     molset_fname = args.savedir + data + '_molset_' + str(n_max) + '.p'
 
 print(molvec_fname)
