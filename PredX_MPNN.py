@@ -30,7 +30,6 @@ class Model(object):
             inter_op_parallelism_threads=num_cpus,
             allow_soft_placement=True
         )
-        tf.Session(config=cpu_config)
 
         # set random seed
         np.random.seed(seed)
@@ -119,7 +118,7 @@ class Model(object):
         self.PX_pred = self._g_nn(self.PX_hidden, self.node_embed, 3, name = 'postX', reuse = True, mask=mask)
 
         self.saver = tf.train.Saver()
-        self.sess = tf.Session()
+        self.sess = tf.Session(config=cpu_config)
 
 
     def test(self, D1_v, D2_v, D3_v, D4_v, D5_v, MS_v, load_path = None, \
