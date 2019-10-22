@@ -22,7 +22,15 @@ class Model(object):
                 batch_size, val_num_samples, \
                 mpnn_steps=5, alignment_type='default', tol=1e-5, \
                 use_X=True, use_R=True, virtual_node=False, seed=0, \
-                refine_steps=0, refine_mom=0.99, prior_T=1):
+                refine_steps=0, refine_mom=0.99, prior_T=1, num_cpus=8):
+                
+        cpu_config = tf.ConfigProto(
+            device_count={"CPU": num_cpus},
+            intra_op_parallelism_threads=num_cpus,
+            inter_op_parallelism_threads=num_cpus,
+            allow_soft_placement=True
+        )
+        tf.Session(config=cpu_config)
 
         # set random seed
         np.random.seed(seed)
