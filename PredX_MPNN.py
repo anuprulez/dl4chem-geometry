@@ -73,9 +73,13 @@ class Model(object):
             mask = self.mask
         self.trn_flag = tf.placeholder(tf.bool)
 
+        # number of atoms
         self.n_atom = tf.reduce_sum( tf.transpose(self.mask, [0, 2, 1]), 2) #[batch_size, 1]
 
+        # embedding for nodes/atoms
         self.node_embed = self._embed_node(self.node)
+        
+        # (20, 50, 50, 11) #(batch_size, n_max, n_max, dim_edge+1)
         self.edge_2 = tf.concat([self.edge, tf.tile( tf.reshape(self.n_atom, [self.batch_size, 1, 1, 1]), [1, self.n_max, self.n_max, 1] )], 3)
 
         # p(Z|G) -- prior of Z
@@ -103,7 +107,8 @@ class Model(object):
         # p(X|Z,G) -- posterior of X
         self.X_edge_wgt = self._edge_nn(self.edge_2, name = 'postX', reuse = False) #[batch_size, n_max, n_max, dim_h, dim_h]
         self.X_hidden = self._MPNN(self.X_edge_wgt, self.postZ_sample + self.node_embed, name = 'postX', reuse = False)
-        self.X_pred = self._g_nn(self.X_hidden, self.node_embed, 3, name = 'postX', reuse = False, mask=ma
+        self.X_pred = self._g_nn(self.X_hidden, self.node_embed, 3, name = 'postX', reuse = False, mask=mask)
+        
         # p(X|Z,G) -- posterior of X without sampling from latent space
         # used for iterative refinement of predictions
         # det stands for deterministic
