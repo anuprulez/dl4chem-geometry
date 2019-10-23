@@ -25,7 +25,7 @@ class Model(object):
                 refine_steps=0, refine_mom=0.99, prior_T=1, num_cpus=8):
                 
         cpu_config = tf.ConfigProto(
-            device_count={"CPU": num_cpus},
+            device_count={"CPU": num_cpus, "GPU": 1},
             intra_op_parallelism_threads=num_cpus,
             inter_op_parallelism_threads=num_cpus,
             allow_soft_placement=True
@@ -54,71 +54,69 @@ class Model(object):
         elif alignment_type == 'default':
             self.msd_func = self.mol_msd
         self.sess = tf.Session(config=cpu_config)
-        with tf.device("/cpu:0"):
-            # variables
-            self.G = tf.Graph()
-            self.G.as_default()
+        # variables
+        self.G = tf.Graph()
+        self.G.as_default()
 
-            # allow the tensorflow graph to be flexible for number of samples in batch
-            # will be useful for validation when we use multiple samples
-            self.node = tf.placeholder(tf.float32, [self.batch_size, self.n_max, self.dim_node])
-            self.mask = tf.placeholder(tf.float32, [self.batch_size, self.n_max, 1]) # node yes = 1, no = 0
-            self.edge = tf.placeholder(tf.float32, [self.batch_size, self.n_max, self.n_max, self.dim_edge])
-            self.pos = tf.placeholder(tf.float32, [self.batch_size, self.n_max, 3])
-            self.pos_to_proximity = self._pos_to_proximity(self.pos)
-            self.proximity = tf.placeholder(tf.float32, [self.batch_size, self.n_max, self.n_max])
-            if self.virtual_node:
-                self.true_masks = tf.placeholder(tf.float32, [self.batch_size, self.n_max, 1])
-                mask = self.true_masks
-            else:
-                mask = self.mask
-            self.trn_flag = tf.placeholder(tf.bool)
+        # allow the tensorflow graph to be flexible for number of samples in batch
+        # will be useful for validation when we use multiple samples
+        self.node = tf.placeholder(tf.float32, [self.batch_size, self.n_max, self.dim_node])
+        self.mask = tf.placeholder(tf.float32, [self.batch_size, self.n_max, 1]) # node yes = 1, no = 0
+        self.edge = tf.placeholder(tf.float32, [self.batch_size, self.n_max, self.n_max, self.dim_edge])
+        self.pos = tf.placeholder(tf.float32, [self.batch_size, self.n_max, 3])
+        self.pos_to_proximity = self._pos_to_proximity(self.pos)
+        self.proximity = tf.placeholder(tf.float32, [self.batch_size, self.n_max, self.n_max])
+        if self.virtual_node:
+            self.true_masks = tf.placeholder(tf.float32, [self.batch_size, self.n_max, 1])
+            mask = self.true_masks
+        else:
+            mask = self.mask
+        self.trn_flag = tf.placeholder(tf.bool)
 
-            self.n_atom = tf.reduce_sum( tf.transpose(self.mask, [0, 2, 1]), 2) #[batch_size, 1]
+        self.n_atom = tf.reduce_sum( tf.transpose(self.mask, [0, 2, 1]), 2) #[batch_size, 1]
 
-            self.node_embed = self._embed_node(self.node)
-            self.edge_2 = tf.concat([self.edge, tf.tile( tf.reshape(self.n_atom, [self.batch_size, 1, 1, 1]), [1, self.n_max, self.n_max, 1] )], 3)
+        self.node_embed = self._embed_node(self.node)
+        self.edge_2 = tf.concat([self.edge, tf.tile( tf.reshape(self.n_atom, [self.batch_size, 1, 1, 1]), [1, self.n_max, self.n_max, 1] )], 3)
 
-            # p(Z|G) -- prior of Z
-            self.priorZ_edge_wgt = self._edge_nn(self.edge_2, name = 'priorZ', reuse = False) #[batch_size, n_max, n_max, dim_h, dim_h]
-            self.priorZ_hidden = self._MPNN(self.priorZ_edge_wgt, self.node_embed, name = 'priorZ', reuse = False)
-            self.priorZ_out = self._g_nn(self.priorZ_hidden, self.node_embed, 2 * self.dim_h, name = 'priorZ', reuse = False)
-            self.priorZ_mu, self.priorZ_lsgms = tf.split(self.priorZ_out, [self.dim_h, self.dim_h], 2)
-            self.priorZ_sample = self._draw_sample(self.priorZ_mu, self.priorZ_lsgms, T=prior_T)
+        # p(Z|G) -- prior of Z
+        self.priorZ_edge_wgt = self._edge_nn(self.edge_2, name = 'priorZ', reuse = False) #[batch_size, n_max, n_max, dim_h, dim_h]
+        self.priorZ_hidden = self._MPNN(self.priorZ_edge_wgt, self.node_embed, name = 'priorZ', reuse = False)
+        self.priorZ_out = self._g_nn(self.priorZ_hidden, self.node_embed, 2 * self.dim_h, name = 'priorZ', reuse = False)
+        self.priorZ_mu, self.priorZ_lsgms = tf.split(self.priorZ_out, [self.dim_h, self.dim_h], 2)
+        self.priorZ_sample = self._draw_sample(self.priorZ_mu, self.priorZ_lsgms, T=prior_T)
 
-            # q(Z|R(X),G) -- posterior of Z, used R insted of X as input for simplicity, should be updated
-            if use_R:
-                self.postZ_edge_wgt = self._edge_nn(tf.concat([self.edge_2, tf.reshape(self.proximity, [self.batch_size, self.n_max, self.n_max, 1])], 3),  name = 'postZ', reuse = False)
-            else:
-                self.postZ_edge_wgt = self._edge_nn(self.edge_2,  name = 'postZ', reuse = False) #[batch_size, n_max, n_max, dim_h, dim_h]
+        # q(Z|R(X),G) -- posterior of Z, used R insted of X as input for simplicity, should be updated
+        if use_R:
+            self.postZ_edge_wgt = self._edge_nn(tf.concat([self.edge_2, tf.reshape(self.proximity, [self.batch_size, self.n_max, self.n_max, 1])], 3),  name = 'postZ', reuse = False)
+        else:
+            self.postZ_edge_wgt = self._edge_nn(self.edge_2,  name = 'postZ', reuse = False) #[batch_size, n_max, n_max, dim_h, dim_h]
 
-            if use_X:
-                self.postZ_hidden = self._MPNN(self.postZ_edge_wgt, self._embed_node(tf.concat([self.node, self.pos], 2)), name = 'postZ', reuse = False)
-            else:
-                self.postZ_hidden = self._MPNN(self.postZ_edge_wgt, self.node_embed, name = 'postZ', reuse = False)
+        if use_X:
+            self.postZ_hidden = self._MPNN(self.postZ_edge_wgt, self._embed_node(tf.concat([self.node, self.pos], 2)), name = 'postZ', reuse = False)
+        else:
+            self.postZ_hidden = self._MPNN(self.postZ_edge_wgt, self.node_embed, name = 'postZ', reuse = False)
 
-            self.postZ_out = self._g_nn(self.postZ_hidden, self.node_embed, 2 * self.dim_h, name = 'postZ', reuse = False)
-            self.postZ_mu, self.postZ_lsgms = tf.split(self.postZ_out, [self.dim_h, self.dim_h], 2)
-            self.postZ_sample = self._draw_sample(self.postZ_mu, self.postZ_lsgms)
+        self.postZ_out = self._g_nn(self.postZ_hidden, self.node_embed, 2 * self.dim_h, name = 'postZ', reuse = False)
+        self.postZ_mu, self.postZ_lsgms = tf.split(self.postZ_out, [self.dim_h, self.dim_h], 2)
+        self.postZ_sample = self._draw_sample(self.postZ_mu, self.postZ_lsgms)
 
-            # p(X|Z,G) -- posterior of X
-            self.X_edge_wgt = self._edge_nn(self.edge_2, name = 'postX', reuse = False) #[batch_size, n_max, n_max, dim_h, dim_h]
-            self.X_hidden = self._MPNN(self.X_edge_wgt, self.postZ_sample + self.node_embed, name = 'postX', reuse = False)
-            self.X_pred = self._g_nn(self.X_hidden, self.node_embed, 3, name = 'postX', reuse = False, mask=mask)
+        # p(X|Z,G) -- posterior of X
+        self.X_edge_wgt = self._edge_nn(self.edge_2, name = 'postX', reuse = False) #[batch_size, n_max, n_max, dim_h, dim_h]
+        self.X_hidden = self._MPNN(self.X_edge_wgt, self.postZ_sample + self.node_embed, name = 'postX', reuse = False)
+        self.X_pred = self._g_nn(self.X_hidden, self.node_embed, 3, name = 'postX', reuse = False, mask=ma
+        # p(X|Z,G) -- posterior of X without sampling from latent space
+        # used for iterative refinement of predictions
+        # det stands for deterministic
+        self.X_edge_wgt_det = self._edge_nn(self.edge_2, name = 'postX', reuse = True) #[batch_size, n_max, n_max, dim_h, dim_h]
+        self.X_hidden_det = self._MPNN(self.X_edge_wgt_det, self.postZ_mu + self.node_embed, name = 'postX', reuse = True)
+        self.X_pred_det = self._g_nn(self.X_hidden_det, self.node_embed, 3, name = 'postX', reuse = True, mask=mask)
 
-            # p(X|Z,G) -- posterior of X without sampling from latent space
-            # used for iterative refinement of predictions
-            # det stands for deterministic
-            self.X_edge_wgt_det = self._edge_nn(self.edge_2, name = 'postX', reuse = True) #[batch_size, n_max, n_max, dim_h, dim_h]
-            self.X_hidden_det = self._MPNN(self.X_edge_wgt_det, self.postZ_mu + self.node_embed, name = 'postX', reuse = True)
-            self.X_pred_det = self._g_nn(self.X_hidden_det, self.node_embed, 3, name = 'postX', reuse = True, mask=mask)
+        # Prediction of X with p(Z|G) in the test phase
+        self.PX_edge_wgt = self._edge_nn(self.edge_2, name = 'postX', reuse = True) #[batch_size, n_max, n_max, dim_h, dim_h]
+        self.PX_hidden = self._MPNN(self.PX_edge_wgt, self.priorZ_sample + self.node_embed, name = 'postX', reuse = True)
+        self.PX_pred = self._g_nn(self.PX_hidden, self.node_embed, 3, name = 'postX', reuse = True, mask=mask)
 
-            # Prediction of X with p(Z|G) in the test phase
-            self.PX_edge_wgt = self._edge_nn(self.edge_2, name = 'postX', reuse = True) #[batch_size, n_max, n_max, dim_h, dim_h]
-            self.PX_hidden = self._MPNN(self.PX_edge_wgt, self.priorZ_sample + self.node_embed, name = 'postX', reuse = True)
-            self.PX_pred = self._g_nn(self.PX_hidden, self.node_embed, 3, name = 'postX', reuse = True, mask=mask)
-
-            self.saver = tf.train.Saver()
+        self.saver = tf.train.Saver()
 
 
     def test(self, D1_v, D2_v, D3_v, D4_v, D5_v, MS_v, load_path = None, \
@@ -283,11 +281,11 @@ class Model(object):
         valaggr_std = np.zeros(num_epochs)
 
         for epoch in range(num_epochs):
-            print(epoch)
             [D1_t, D2_t, D3_t, D4_t, D5_t] = self._permutation([D1_t, D2_t, D3_t, D4_t, D5_t])
 
             trnscores = np.zeros((n_batch, 4))
             for i in range(n_batch):
+                print("Epoch: %d, batch: %d" % (epoch, i))
                 start_ = i * self.batch_size
                 end_ = start_ + self.batch_size
 
