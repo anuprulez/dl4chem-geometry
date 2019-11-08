@@ -24,7 +24,7 @@ class Model(object):
                 use_X=True, use_R=True, virtual_node=False, seed=0, \
                 refine_steps=0, refine_mom=0.99, prior_T=1, num_cpus=8):
                 
-        cpu_config = tf.ConfigProto(
+        self.cpu_config = tf.ConfigProto(
             device_count={"CPU": num_cpus, "GPU": 1},
             intra_op_parallelism_threads=num_cpus,
             inter_op_parallelism_threads=num_cpus,
@@ -53,25 +53,25 @@ class Model(object):
             self.msd_func = self.kabsch_msd
         elif alignment_type == 'default':
             self.msd_func = self.mol_msd
-        self.sess = tf.Session(config=cpu_config)
+        self.sess = tf.Session(config=self.cpu_config)
         # variables
         self.G = tf.Graph()
         self.G.as_default()
 
         # allow the tensorflow graph to be flexible for number of samples in batch
         # will be useful for validation when we use multiple samples
-        self.node = tf.placeholder(tf.float32, [self.batch_size, self.n_max, self.dim_node])
-        self.mask = tf.placeholder(tf.float32, [self.batch_size, self.n_max, 1]) # node yes = 1, no = 0
-        self.edge = tf.placeholder(tf.float32, [self.batch_size, self.n_max, self.n_max, self.dim_edge])
-        self.pos = tf.placeholder(tf.float32, [self.batch_size, self.n_max, 3])
+        self.node = tf.placeholder(tf.float32, [self.batch_size, self.n_max, self.dim_node], name="node")
+        self.mask = tf.placeholder(tf.float32, [self.batch_size, self.n_max, 1], name="mask") # node yes = 1, no = 0
+        self.edge = tf.placeholder(tf.float32, [self.batch_size, self.n_max, self.n_max, self.dim_edge], name="edge")
+        self.pos = tf.placeholder(tf.float32, [self.batch_size, self.n_max, 3], name="pos")
         self.pos_to_proximity = self._pos_to_proximity(self.pos)
-        self.proximity = tf.placeholder(tf.float32, [self.batch_size, self.n_max, self.n_max])
+        self.proximity = tf.placeholder(tf.float32, [self.batch_size, self.n_max, self.n_max], name="proximity")
         if self.virtual_node:
-            self.true_masks = tf.placeholder(tf.float32, [self.batch_size, self.n_max, 1])
+            self.true_masks = tf.placeholder(tf.float32, [self.batch_size, self.n_max, 1], name="true_masks")
             mask = self.true_masks
         else:
             mask = self.mask
-        self.trn_flag = tf.placeholder(tf.bool)
+        self.trn_flag = tf.placeholder(tf.bool, name="train_flag")
 
         # number of atoms
         self.n_atom = tf.reduce_sum( tf.transpose(self.mask, [0, 2, 1]), 2) #[batch_size, 1]
@@ -85,7 +85,7 @@ class Model(object):
         # p(Z|G) -- prior of Z
         self.priorZ_edge_wgt = self._edge_nn(self.edge_2, name = 'priorZ', reuse = False) #[batch_size, n_max, n_max, dim_h, dim_h]
         self.priorZ_hidden = self._MPNN(self.priorZ_edge_wgt, self.node_embed, name = 'priorZ', reuse = False)
-        self.priorZ_out = self._g_nn(self.priorZ_hidden, self.node_embed, 2 * self.dim_h, name = 'priorZ', reuse = False)
+        self.priorZ_out = self._g_nn(self.priorZ_hidden, self.node_embed, 2 * self.dim_h, name = 'priorZ', reuse = False, uname = 'priorZ_out')
         self.priorZ_mu, self.priorZ_lsgms = tf.split(self.priorZ_out, [self.dim_h, self.dim_h], 2)
         self.priorZ_sample = self._draw_sample(self.priorZ_mu, self.priorZ_lsgms, T=prior_T)
 
@@ -100,93 +100,122 @@ class Model(object):
         else:
             self.postZ_hidden = self._MPNN(self.postZ_edge_wgt, self.node_embed, name = 'postZ', reuse = False)
 
-        self.postZ_out = self._g_nn(self.postZ_hidden, self.node_embed, 2 * self.dim_h, name = 'postZ', reuse = False)
+        self.postZ_out = self._g_nn(self.postZ_hidden, self.node_embed, 2 * self.dim_h, name = 'postZ', reuse = False, uname = 'postZ_out')
         self.postZ_mu, self.postZ_lsgms = tf.split(self.postZ_out, [self.dim_h, self.dim_h], 2)
         self.postZ_sample = self._draw_sample(self.postZ_mu, self.postZ_lsgms)
 
         # p(X|Z,G) -- posterior of X
         self.X_edge_wgt = self._edge_nn(self.edge_2, name = 'postX', reuse = False) #[batch_size, n_max, n_max, dim_h, dim_h]
         self.X_hidden = self._MPNN(self.X_edge_wgt, self.postZ_sample + self.node_embed, name = 'postX', reuse = False)
-        self.X_pred = self._g_nn(self.X_hidden, self.node_embed, 3, name = 'postX', reuse = False, mask=mask)
+        self.X_pred = self._g_nn(self.X_hidden, self.node_embed, 3, name = 'postX', reuse = False, mask=mask, uname = 'X_pred')
+        #self.X_pred_var = tf.Variable(self.X_pred, name = "X_pred")
         
         # p(X|Z,G) -- posterior of X without sampling from latent space
         # used for iterative refinement of predictions
         # det stands for deterministic
         self.X_edge_wgt_det = self._edge_nn(self.edge_2, name = 'postX', reuse = True) #[batch_size, n_max, n_max, dim_h, dim_h]
         self.X_hidden_det = self._MPNN(self.X_edge_wgt_det, self.postZ_mu + self.node_embed, name = 'postX', reuse = True)
-        self.X_pred_det = self._g_nn(self.X_hidden_det, self.node_embed, 3, name = 'postX', reuse = True, mask=mask)
+        self.X_pred_det = self._g_nn(self.X_hidden_det, self.node_embed, 3, name = 'postX', reuse = True, mask=mask, uname = 'X_pred_det')
 
         # Prediction of X with p(Z|G) in the test phase
         self.PX_edge_wgt = self._edge_nn(self.edge_2, name = 'postX', reuse = True) #[batch_size, n_max, n_max, dim_h, dim_h]
         self.PX_hidden = self._MPNN(self.PX_edge_wgt, self.priorZ_sample + self.node_embed, name = 'postX', reuse = True)
-        self.PX_pred = self._g_nn(self.PX_hidden, self.node_embed, 3, name = 'postX', reuse = True, mask=mask)
+        self.PX_pred = self._g_nn(self.PX_hidden, self.node_embed, 3, name = 'postX', reuse = True, mask=mask, uname = 'PX_pred')
+        #self.PX_pred_var = tf.Variable(self.PX_pred, name = "PX_pred")
 
+        #self.saver = tf.train.Saver({"X_pred": self.X_pred, "PX_pred": self.PX_pred})
         self.saver = tf.train.Saver()
 
 
-    def test(self, D1_v, D2_v, D3_v, D4_v, D5_v, MS_v, load_path = None, \
-                tm_v=None, debug=False, savepred_path=None, savepermol=False, useFF=False):
-        if load_path is not None:
-            self.saver.restore( self.sess, load_path )
+    def test(self, D1_v, D2_v, D3_v, D4_v, D5_v, MS_v, 
+            #load_path = None, tm_v=None, debug=False, savepred_path=None, savepermol=False, 
+            useFF=False
+        ):
+                
+        sess = tf.Session(config=self.cpu_config)
+        #if load_path is not None:
+        #    print(load_path)
+        load_path = "data/mol_model-2.meta"
+        saver = tf.train.import_meta_graph(load_path)
+        saver.restore(sess, tf.train.latest_checkpoint('data/'))
+        graph = tf.get_default_graph()
+        #gf_nodes = [n.name for n in graph.as_graph_def().node if "g_nnpostX/X_pred_1" in n.name]
+        refine_mom=0.99
+        print(gf_nodes)
+        #self.saver.restore( self.sess, load_path )
 
         # val batch size is different from train batch size
         # since we use multiple samples
-        val_batch_size = int(self.batch_size / self.val_num_samples)
-        n_batch_val = int(len(D1_v)/val_batch_size)
-        assert ((self.batch_size % self.val_num_samples) == 0)
-        assert (len(D1_v) % val_batch_size == 0)
-
+        #val_batch_size = int(self.batch_size / self.val_num_samples)
+        #n_batch_val = int(len(D1_v)/val_batch_size)
+        #assert ((self.batch_size % self.val_num_samples) == 0)
+        #assert (len(D1_v) % val_batch_size == 0)
+        val_batch_size = 1
+        val_num_samples = 1
         val_size = D1_v.shape[0]
         valscores_mean = np.zeros(val_size)
         valscores_std = np.zeros(val_size)
 
-        if savepred_path != None:
+        '''if savepred_path != None:
             if not savepermol:
-                pred_v = np.zeros((len(D1_v), self.val_num_samples, self.n_max, 3))
-
+                pred_v = np.zeros((len(D1_v), self.val_num_samples, self.n_max, 3))'''
+        n_batch_val = 1
         print ("testing model...")
+        node = graph.get_tensor_by_name("node:0")
+        mask = graph.get_tensor_by_name("mask:0")
+        edge = graph.get_tensor_by_name("edge:0")
+        trn_flag = graph.get_tensor_by_name("train_flag:0")
+        pos = graph.get_tensor_by_name("pos:0")
+        proximity = graph.get_tensor_by_name("proximity:0")
+        pos_to_proximity = self._pos_to_proximity(pos)
+        mask = graph.get_tensor_by_name("mask:0")
+        '''X_pred = pkl.load(open('X_pred.p', 'rb'))
+        PX_pred = pkl.load(open('PX_pred.p', 'rb'))'''
+        X_pred = graph.get_tensor_by_name("g_nnpostX/X_pred_1:0")
+        PX_pred = graph.get_tensor_by_name("g_nnpostX_2/PX_pred_1:0")
+        use_X = False
+        use_R = True
         for i in range(n_batch_val):
-            if debug:
-                print (i, n_batch_val)
+            #if debug:
+            #    print (i, n_batch_val)
             start_ = i * val_batch_size
             end_ = start_ + val_batch_size
 
-            node_val = np.repeat(D1_v[start_:end_], self.val_num_samples, axis=0)
-            mask_val = np.repeat(D2_v[start_:end_], self.val_num_samples, axis=0)
-            edge_val = np.repeat(D3_v[start_:end_], self.val_num_samples, axis=0)
-            proximity_val = np.repeat(D4_v[start_:end_], self.val_num_samples, axis=0)
+            node_val = np.repeat(D1_v[start_:end_], val_num_samples, axis=0)
+            mask_val = np.repeat(D2_v[start_:end_], val_num_samples, axis=0)
+            edge_val = np.repeat(D3_v[start_:end_], val_num_samples, axis=0)
+            proximity_val = np.repeat(D4_v[start_:end_], val_num_samples, axis=0)
 
-            dict_val = {self.node: node_val, self.mask:mask_val, self.edge:edge_val, \
-                        self.trn_flag: False }
+            dict_val = {node: node_val, mask: mask_val, edge: edge_val, trn_flag: False}
 
             if self.virtual_node:
-                true_masks_val = np.repeat(tm_v[start_:end_], self.val_num_samples, axis=0)
-                dict_val[self.true_masks] = true_masks_val
-                D5_batch = self.sess.run(self.PX_pred, feed_dict=dict_val)
+                true_masks_val = np.repeat(tm_v[start_:end_], val_num_samples, axis=0)
+                dict_val[true_masks] = true_masks_val
+                D5_batch = sess.run(PX_pred, feed_dict=dict_val)
             else:
-                D5_batch = self.sess.run(self.PX_pred, feed_dict=dict_val)
+                D5_batch = sess.run(PX_pred, feed_dict=dict_val)
 
-            if savepred_path != None:
+            '''if savepred_path != None:
                 if not savepermol:
-                    pred_v[start_:end_] = D5_batch.reshape(val_batch_size, self.val_num_samples, self.n_max, 3)
+                    pred_v[start_:end_] = D5_batch.reshape(val_batch_size, self.val_num_samples, self.n_max, 3)'''
 
             # iterative refinement of posterior
             D5_batch_pred = copy.deepcopy(D5_batch)
             for r in range(self.refine_steps):
-                if self.use_X:
-                    dict_val[self.pos] = D5_batch_pred
-                if self.use_R:
-                    pred_proximity = self.sess.run(self.pos_to_proximity, \
-                                        feed_dict={self.pos: D5_batch_pred, \
-                                                    self.mask:mask_val})
-                    dict_val[self.proximity] = pred_proximity
-                D5_batch = self.sess.run(self.X_pred, feed_dict=dict_val)
+                if use_X:
+                    dict_val[pos] = D5_batch_pred
+                if use_R:
+                    pred_proximity = sess.run(pos_to_proximity, \
+                                        feed_dict={pos: D5_batch_pred, \
+                                                    mask:mask_val})
+                    dict_val[proximity] = pred_proximity
+                D5_batch = sess.run(X_pred, feed_dict=dict_val)
                 D5_batch_pred = \
-                    self.refine_mom * D5_batch_pred + (1-self.refine_mom) * D5_batch
+                    refine_mom * D5_batch_pred + (1-refine_mom) * D5_batch
 
             valres=[]
             for j in range(D5_batch_pred.shape[0]):
-                ms_v_index = int(j / self.val_num_samples) + start_
+                ms_v_index = int(j / val_num_samples) + start_
                 res = self.getRMS(MS_v[ms_v_index], D5_batch_pred[j], useFF)
                 valres.append(res)
 
@@ -199,19 +228,19 @@ class Model(object):
             valscores_std[start_:end_] = valres_std
 
             # save results per molecule if request
-            if savepermol:
+            '''if savepermol:
                 pred_curr = copy.deepcopy(D5_batch_pred).reshape(val_batch_size, self.val_num_samples, self.n_max, 3)
                 for tt in range(0, val_batch_size):
                     save_dict_tt = {'rmsd': valres[tt], 'pred': pred_curr[tt]}
                     pkl.dump(save_dict_tt, \
-                        open(os.path.join(savepred_path, 'mol_{}_neuralnet.p'.format(tt+start_)), 'wb'))
+                        open(os.path.join(savepred_path, 'mol_{}_neuralnet.p'.format(tt+start_)), 'wb'))'''
 
         print ("val scores: mean is {} , std is {}".format(np.mean(valscores_mean), np.mean(valscores_std)))
-        if savepred_path != None:
+        '''if savepred_path != None:
             if not savepermol:
                 print ("saving neural net predictions into {}".format(savepred_path))
-                pkl.dump(pred_v, open(savepred_path, 'wb'))
-
+                pkl.dump(pred_v, open(savepred_path, 'wb'))'''
+        #print(np.mean(valscores_mean), np.mean(valscores_std))
         return np.mean(valscores_mean), np.mean(valscores_std)
 
     def getRMS(self, prb_mol, ref_pos, useFF=False):
@@ -245,19 +274,23 @@ class Model(object):
         return res
 
 
-    def train(self, D1_t, D2_t, D3_t, D4_t, D5_t, MS_t, D1_v, D2_v, D3_v, D4_v, D5_v, MS_v,\
-            load_path = None, save_path = None, train_event_path = None, valid_event_path = None,\
-            log_train_steps=100, tm_trn=None, tm_val=None, w_reg=1e-3, debug=False, exp=None):
-        if exp is not None:
-            data_path = exp.get_data_path(exp.name, exp.version)
-            save_path = os.path.join(data_path, 'checkpoints/model.ckpt')
-            event_path = os.path.join(data_path, 'event/')
-            print(save_path, flush=True)
-            print(event_path, flush=True)
+    def train(self, D1_t, D2_t, D3_t, D4_t, D5_t, MS_t, 
+             #D1_v, D2_v, D3_v, D4_v, D5_v, MS_v,\
+            #load_path = None, save_path = None, 
+            #train_event_path = None, valid_event_path = None,\
+            #og_train_steps=0, tm_trn=None, tm_val=None, 
+            w_reg=1e-3, debug=False, exp=None
+        ):
+        #if exp is not None:
+        #data_path = exp.get_data_path(exp.name, exp.version)
+        '''save_path = os.path.join('checkpoints/model.ckpt')
+        event_path = os.path.join('event/')
+        print(save_path, flush=True)
+        print(event_path, flush=True)'''
         # SummaryWriter
-        if not debug:
+        '''if not debug:
             train_summary_writer = SummaryWriter(train_event_path)
-            valid_summary_writer = SummaryWriter(valid_event_path)
+            valid_summary_writer = SummaryWriter(valid_event_path)'''
 
         # objective functions
         cost_KLDZ = tf.reduce_mean( tf.reduce_sum( self._KLD(self.postZ_mu, self.postZ_lsgms, self.priorZ_mu, self.priorZ_lsgms), [1, 2]) ) # posterior | prior
@@ -271,17 +304,17 @@ class Model(object):
 
         self.sess.run(tf.global_variables_initializer())
         self.sess.graph.finalize()
-        if load_path is not None:
-            self.saver.restore( self.sess, load_path )
+        #if load_path is not None:
+        #    self.saver.restore( self.sess, load_path )
 
         # session
         n_batch = int(len(D1_t)/self.batch_size)
-        n_batch_val = int(len(D1_v)/self.batch_size)
+        #n_batch_val = int(len(D1_v)/self.batch_size)
         np.set_printoptions(precision=5, suppress=True)
 
         # training
         print('::: start training')
-        num_epochs = 10 #2500
+        num_epochs = 2 #2500
         valaggr_mean = np.zeros(num_epochs)
         valaggr_std = np.zeros(num_epochs)
 
@@ -316,12 +349,12 @@ class Model(object):
                 # log results
                 curr_iter = epoch * n_batch + i
 
-                if not debug:
+                '''if not debug:
                     if curr_iter % log_train_steps == 0:
                         train_summary_writer.add_scalar("train/cost_op", trnresult[0], curr_iter)
                         train_summary_writer.add_scalar("train/cost_X", trnresult[1], curr_iter)
                         train_summary_writer.add_scalar("train/cost_KLDZ", trnresult[2], curr_iter)
-                        train_summary_writer.add_scalar("train/cost_KLD0", trnresult[3], curr_iter)
+                        train_summary_writer.add_scalar("train/cost_KLD0", trnresult[3], curr_iter)'''
 
                 assert np.sum(np.isnan(trnresult)) == 0
                 trnscores[i,:] = trnresult
@@ -330,8 +363,11 @@ class Model(object):
             if exp is not None:
                 exp_dict['training epoch id'] = epoch
                 exp_dict['train_score'] = np.mean(trnscores,0)
-
-            valscores_mean, valscores_std = self.test(D1_v, D2_v, D3_v, D4_v, D5_v, MS_v, \
+                
+            #if save_path is not None and not debug:
+            self.saver.save( self.sess, "data/mol_model", global_step=num_epochs )
+        
+            '''valscores_mean, valscores_std = self.test(D1_v, D2_v, D3_v, D4_v, D5_v, MS_v, \
                                             load_path=None, tm_v=tm_val, debug=debug)
 
             valaggr_mean[epoch] = valscores_mean
@@ -356,7 +392,7 @@ class Model(object):
                 exp.save()
 
             if save_path is not None and not debug:
-                self.saver.save( self.sess, save_path )
+                self.saver.save( self.sess, save_path, global_step=num_epochs )
             # keep track of the best model as well in the separate checkpoint
             # it is done by copying the checkpoint
             if valaggr_mean[epoch] == np.min(valaggr_mean[0:epoch+1]) and not debug:
@@ -367,7 +403,7 @@ class Model(object):
                     best_model_name = model_name.split('.')[0] + '_best.' + '.'.join(model_name.split('.')[1:])
                     full_best_model_path = os.path.join(model_path, best_model_name)
                     full_model_path = ckpt_f
-                    shutil.copyfile(full_model_path, full_best_model_path)
+                    shutil.copyfile(full_model_path, full_best_model_path)'''
         self.sess.close()
 
     def do_mask(self, vec, m):
@@ -516,7 +552,7 @@ class Model(object):
         return node_hidden_0
 
 
-    def _g_nn(self, inp, node, outdim, name='', reuse=True, mask=None): #[batch_size, n_max, -]
+    def _g_nn(self, inp, node, outdim, name='', reuse=True, mask=None, uname=''): #[batch_size, n_max, -]
 
         if mask is None: mask = self.mask
         with tf.variable_scope('g_nn'+name, reuse=reuse):
@@ -531,7 +567,7 @@ class Model(object):
             inp = tf.layers.dense(inp, outdim)
 
             inp = tf.reshape(inp, [self.batch_size, self.n_max, outdim])
-            inp = tf.multiply(inp, mask)
+            inp = tf.multiply(inp, mask, name = uname)
 
         return inp
 

@@ -90,7 +90,8 @@ filepath = args.loaddir + filename
 
 #[mollist, smilist] = pkl.load(open(args.loaddir+data+'_molset_all.p','rb'))
 [mollist, smilist] = pkl.load(open(filepath,'rb'))
-max_mol = 2000
+print(len(mollist))
+max_mol = 10
 D1 = []
 D2 = []
 D3 = []
@@ -111,7 +112,6 @@ for i in range(max_mol):
     if mol.GetNumHeavyAtoms() < n_min or mol.GetNumHeavyAtoms() > n_max:
         print('error')
         break
-
     n = mol.GetNumAtoms()
     ri = mol.GetRingInfo()
     ri_a = ri.AtomRings()
@@ -180,7 +180,6 @@ for i in range(max_mol):
 
         pos2 = np.zeros((n_max, 3))
         pos2[:n] = pos
-
     D1.append(np.array(node, dtype=int))
     D2.append(np.array(mask, dtype=int))
     D3.append(np.array(edge, dtype=int))

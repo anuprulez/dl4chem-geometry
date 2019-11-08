@@ -33,9 +33,9 @@ def train(args, exp=None):
         if args.virtual_node is True:
             n_max += 1
             dim_edge += 1
-        nval = 300
-        ntst = 300
-    elif args.data == 'QM9':
+        nval = 0
+        ntst = 2
+    '''elif args.data == 'QM9':
         n_max = 9
         dim_node = 22
         dim_edge = 10
@@ -52,7 +52,7 @@ def train(args, exp=None):
             n_max += 1
             dim_edge += 1
         nval = 3000
-        ntst = 3000
+        ntst = 3000'''
 
     dim_h = args.dim_h
     dim_f = args.dim_f
@@ -77,6 +77,7 @@ def train(args, exp=None):
         os.makedirs(args.valid_eventdir)
 
     save_path = os.path.join(args.ckptdir, args.model_name + '_model.ckpt')
+    print(save_path)
     #event_path = os.path.join(args.eventdir, args.model_name)
 
     if args.virtual_node:
@@ -195,23 +196,22 @@ def train(args, exp=None):
             os.makedirs(args.savepreddir)
 
     with model.sess:
-        if args.test:
-            if args.use_val:
-                model.test(D1_val, D2_val, D3_val, D4_val, D5_val, molsup_val, \
-                            load_path=args.loaddir, tm_v=tm_val, debug=args.debug, \
-                            savepred_path=args.savepreddir, savepermol=args.savepermol, useFF=args.useFF)
-            else:
-                model.test(D1_tst, D2_tst, D3_tst, D4_tst, D5_tst, molsup_tst, \
-                            load_path=args.loaddir, tm_v=tm_tst, debug=args.debug, \
-                            savepred_path=args.savepreddir, savepermol=args.savepermol, useFF=args.useFF)
-        else:
-            model.train(D1_trn, D2_trn, D3_trn, D4_trn, D5_trn, molsup_trn, \
-                        D1_val, D2_val, D3_val, D4_val, D5_val, molsup_val, \
-                        load_path=args.loaddir, save_path=save_path, \
-                        train_event_path=args.train_eventdir, valid_event_path=args.valid_eventdir, \
-                        log_train_steps=args.log_train_steps, tm_trn=tm_trn, tm_val=tm_val, \
+        '''
+        model.train(D1_trn, D2_trn, D3_trn, D4_trn, D5_trn, molsup_trn, \
+                        #D1_val, D2_val, D3_val, D4_val, D5_val, molsup_val, \
+                        #load_path=args.loaddir, save_path=save_path, \
+                        #train_event_path=args.train_eventdir, valid_event_path=args.valid_eventdir, \
+                        #log_train_steps=args.log_train_steps, tm_trn=tm_trn, tm_val=tm_val, \
                         w_reg=args.w_reg, \
                         debug=args.debug, exp=exp)
+        '''
+        print("Test size")
+        print(D1_tst.shape)            
+        model.test(D1_tst, D2_tst, D3_tst, D4_tst, D5_tst, molsup_tst, \
+                            #load_path=args.loaddir, tm_v=tm_tst, debug=args.debug, \
+                            #savepred_path=args.savepreddir, savepermol=args.savepermol, 
+                            useFF=args.useFF)
+        
 
 def search_train(args, *extra_args):
     exp = Experiment(
@@ -235,20 +235,20 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train network')
 
     parser.add_argument('--data', type=str, default='COD', choices=['COD', 'QM9', 'CSD'])
-    parser.add_argument('--ckptdir', type=str, default='./checkpoints/')
-    parser.add_argument('--eventdir', type=str, default='./events/')
+    parser.add_argument('--ckptdir', type=str, default='checkpoints/')
+    parser.add_argument('--eventdir', type=str, default='events/')
     parser.add_argument('--savepreddir', type=str, default=None,
                         help='path where predictions of the network are save')
     parser.add_argument('--savepermol', action='store_true', help='save results per molecule')
-    parser.add_argument('--loaddir', type=str, default=None)
+    parser.add_argument('--loaddir', type=str, default="checkpoints/")
     parser.add_argument('--model_name', type=str, default='neuralnet')
     parser.add_argument('--alignment_type', type=str, default='kabsch', choices=['default', 'linear', 'kabsch'])
     parser.add_argument('--virtual_node', action='store_true', help='use virtual node')
     parser.add_argument('--debug', action='store_true', help='debug mode')
     parser.add_argument('--test', action='store_true', help='test mode')
-    parser.add_argument('--use_val', action='store_true', help='use validation set')
+    parser.add_argument('--use_val', action='store_true', default=False, help='use validation set')
     parser.add_argument('--seed', type=int, default=1334, help='random seed for experiments')
-    parser.add_argument('--batch_size', type=int, default=20, help='batch size')
+    parser.add_argument('--batch_size', type=int, default=100, help='batch size')
     parser.add_argument('--val_num_samples', type=int, default=10,
                         help='number of samples from prior used for validation')
     parser.add_argument('--tol', type=float, default=1e-5, help='tolerance for masking used in svd calculation')
