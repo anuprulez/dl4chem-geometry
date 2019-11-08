@@ -38,7 +38,7 @@ class Model(object):
         # hyper-parameters
         self.data = data
         self.mpnn_steps = mpnn_steps
-        self.n_max, self.dim_node, self.dim_edge, self.dim_h, self.dim_f, self.batch_size = n_max, dim_node, dim_edge, dim_h, dim_f, batch_size
+        self.n_max, self.dim_node, self.dim_edge, self.dim_h, self.dim_f = n_max, dim_node, dim_edge, dim_h, dim_f
         self.val_num_samples = val_num_samples
         self.tol = tol
         self.virtual_node = virtual_node
@@ -46,6 +46,8 @@ class Model(object):
         self.refine_mom = refine_mom
         self.use_X = use_X
         self.use_R = use_R
+        self.batch_size = batch_size
+        self.b_size = tf.placeholder(dtype=tf.int32)
 
         if alignment_type == 'linear':
             self.msd_func = self.linear_transform_msd
@@ -108,7 +110,6 @@ class Model(object):
         self.X_edge_wgt = self._edge_nn(self.edge_2, name = 'postX', reuse = False) #[batch_size, n_max, n_max, dim_h, dim_h]
         self.X_hidden = self._MPNN(self.X_edge_wgt, self.postZ_sample + self.node_embed, name = 'postX', reuse = False)
         self.X_pred = self._g_nn(self.X_hidden, self.node_embed, 3, name = 'postX', reuse = False, mask=mask, uname = 'X_pred')
-        #self.X_pred_var = tf.Variable(self.X_pred, name = "X_pred")
         
         # p(X|Z,G) -- posterior of X without sampling from latent space
         # used for iterative refinement of predictions
@@ -121,16 +122,13 @@ class Model(object):
         self.PX_edge_wgt = self._edge_nn(self.edge_2, name = 'postX', reuse = True) #[batch_size, n_max, n_max, dim_h, dim_h]
         self.PX_hidden = self._MPNN(self.PX_edge_wgt, self.priorZ_sample + self.node_embed, name = 'postX', reuse = True)
         self.PX_pred = self._g_nn(self.PX_hidden, self.node_embed, 3, name = 'postX', reuse = True, mask=mask, uname = 'PX_pred')
-        #self.PX_pred_var = tf.Variable(self.PX_pred, name = "PX_pred")
 
-        #self.saver = tf.train.Saver({"X_pred": self.X_pred, "PX_pred": self.PX_pred})
         self.saver = tf.train.Saver()
 
 
     def test(self, D1_v, D2_v, D3_v, D4_v, D5_v, MS_v, 
             #load_path = None, tm_v=None, debug=False, savepred_path=None, savepermol=False, 
-            useFF=False
-        ):
+            useFF=False):
                 
         sess = tf.Session(config=self.cpu_config)
         #if load_path is not None:
@@ -141,7 +139,7 @@ class Model(object):
         graph = tf.get_default_graph()
         #gf_nodes = [n.name for n in graph.as_graph_def().node if "g_nnpostX/X_pred_1" in n.name]
         refine_mom=0.99
-        print(gf_nodes)
+        #print(gf_nodes)
         #self.saver.restore( self.sess, load_path )
 
         # val batch size is different from train batch size
@@ -173,8 +171,15 @@ class Model(object):
         PX_pred = pkl.load(open('PX_pred.p', 'rb'))'''
         X_pred = graph.get_tensor_by_name("g_nnpostX/X_pred_1:0")
         PX_pred = graph.get_tensor_by_name("g_nnpostX_2/PX_pred_1:0")
+        b_size = tf.placeholder(dtype=tf.int32)
+        print(X_pred.shape)
+        print(PX_pred.shape)
+        #PX_pred = tf.reshape(PX_pred, (val_batch_size, D1_v.shape[1], D1_v.shape[2]))
+        #PX_pred = PX_pred[0:1, :, :]
+        print(PX_pred.shape)
         use_X = False
         use_R = True
+        batch_size = val_batch_size
         for i in range(n_batch_val):
             #if debug:
             #    print (i, n_batch_val)
@@ -186,7 +191,7 @@ class Model(object):
             edge_val = np.repeat(D3_v[start_:end_], val_num_samples, axis=0)
             proximity_val = np.repeat(D4_v[start_:end_], val_num_samples, axis=0)
 
-            dict_val = {node: node_val, mask: mask_val, edge: edge_val, trn_flag: False}
+            dict_val = {node: node_val, mask: mask_val, edge: edge_val, trn_flag: False, b_size: [batch_size]}
 
             if self.virtual_node:
                 true_masks_val = np.repeat(tm_v[start_:end_], val_num_samples, axis=0)
@@ -207,7 +212,7 @@ class Model(object):
                 if use_R:
                     pred_proximity = sess.run(pos_to_proximity, \
                                         feed_dict={pos: D5_batch_pred, \
-                                                    mask:mask_val})
+                                                    mask:mask_val, b_size: [batch_size]})
                     dict_val[proximity] = pred_proximity
                 D5_batch = sess.run(X_pred, feed_dict=dict_val)
                 D5_batch_pred = \
@@ -334,12 +339,14 @@ class Model(object):
                                                          self.proximity: D4_t[start_:end_],
                                                          self.pos: D5_t[start_:end_],
                                                          self.true_masks: tm_trn[start_:end_],
+                                                         self.b_size: [self.batch_size],
                                                          self.trn_flag: True})
                 else:
                     trnresult = self.sess.run([train_op, cost_op, cost_X, cost_KLDZ, cost_KLD0],
                                     feed_dict = {self.node: D1_t[start_:end_], self.mask: D2_t[start_:end_],
                                                  self.edge: D3_t[start_:end_], self.proximity: D4_t[start_:end_],
-                                                 self.pos: D5_t[start_:end_], self.trn_flag: True})
+                                                 self.pos: D5_t[start_:end_], self.trn_flag: True,
+                                                 self.b_size: [self.batch_size]})
 
                 trnresult = trnresult[1:]
                 if debug:

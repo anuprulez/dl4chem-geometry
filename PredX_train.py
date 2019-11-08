@@ -248,7 +248,7 @@ if __name__ == '__main__':
     parser.add_argument('--test', action='store_true', help='test mode')
     parser.add_argument('--use_val', action='store_true', default=False, help='use validation set')
     parser.add_argument('--seed', type=int, default=1334, help='random seed for experiments')
-    parser.add_argument('--batch_size', type=int, default=100, help='batch size')
+    parser.add_argument('--batch_size', type=int, default=1, help='batch size')
     parser.add_argument('--val_num_samples', type=int, default=10,
                         help='number of samples from prior used for validation')
     parser.add_argument('--tol', type=float, default=1e-5, help='tolerance for masking used in svd calculation')
