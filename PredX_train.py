@@ -187,8 +187,6 @@ def train(args, exp=None):
                         virtual_node=args.virtual_node, seed=args.seed, \
                         refine_steps=args.refine_steps, refine_mom=args.refine_mom, \
                         prior_T=args.prior_T)
-    #if args.loaddir != None:
-    #    model.saver.restore(model.sess, args.loaddir)
 
     if args.savepermol:
         args.savepreddir = os.path.join(args.savepreddir, args.data, "_val_" if args.use_val else "_test_")
@@ -197,16 +195,14 @@ def train(args, exp=None):
 
     with model.sess:
         
-        model.train(D1_trn, D2_trn, D3_trn, D4_trn, D5_trn, molsup_trn, \
+        '''model.train(D1_trn, D2_trn, D3_trn, D4_trn, D5_trn, molsup_trn, \
                         #D1_val, D2_val, D3_val, D4_val, D5_val, molsup_val, \
                         load_path=args.loaddir, save_path=save_path, \
                         train_event_path=args.train_eventdir, valid_event_path=args.valid_eventdir, \
                         log_train_steps=args.log_train_steps, tm_trn=tm_trn, tm_val=tm_val, \
                         w_reg=args.w_reg, \
-                        debug=args.debug, exp=exp)
-        
-        #print("Test size: " + str(D1_tst.shape))
-        #print("Load path: " + args.loaddir)        
+                        debug=args.debug, exp=exp, epochs=args.num_epochs)'''
+       
         model.test(D1_tst, D2_tst, D3_tst, D4_tst, D5_tst, molsup_tst, \
                             load_path=args.loaddir, tm_v=tm_tst, debug=args.debug, \
                             savepred_path=args.savepreddir, savepermol=args.savepermol, 
@@ -264,6 +260,7 @@ if __name__ == '__main__':
     parser.add_argument('--dim_h', type=int, default=50, help='dimension of the hidden')
     parser.add_argument('--dim_f', type=int, default=100, help='dimension of the hidden')
     parser.add_argument('--mpnn_steps', type=int, default=5, help='number of mpnn steps')
+    parser.add_argument('--num_epochs', type=int, default=10, help='number of training steps')
 
     args = parser.parse_args()
 

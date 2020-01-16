@@ -134,7 +134,7 @@ class Model(object):
         if load_path is not None:
             print(load_path)
         #load_path = "data/mol_model-2.meta" #
-        load_path = "checkpoints/model.ckpt-2.meta"
+        #load_path = "checkpoints/model.ckpt-2.meta"
         saver = tf.train.import_meta_graph(load_path)
         saver.restore(sess, tf.train.latest_checkpoint('checkpoints/'))
         graph = tf.get_default_graph()
@@ -279,7 +279,7 @@ class Model(object):
             load_path = None, save_path = None, 
             train_event_path = None, valid_event_path = None,\
             log_train_steps=0, tm_trn=None, tm_val=None, 
-            w_reg=1e-3, debug=False, exp=None
+            w_reg=1e-3, debug=False, exp=None, epochs=10
         ):
         #if exp is not None:
         #data_path = exp.get_data_path(exp.name, exp.version)
@@ -315,8 +315,8 @@ class Model(object):
         np.set_printoptions(precision=5, suppress=True)
 
         # training
-        print('::: start training')
-        num_epochs = 2 #2500
+        print('::: start training for %d epochs' % epochs)
+        num_epochs = epochs #2500
         valaggr_mean = np.zeros(num_epochs)
         valaggr_std = np.zeros(num_epochs)
 
