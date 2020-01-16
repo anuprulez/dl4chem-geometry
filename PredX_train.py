@@ -196,20 +196,20 @@ def train(args, exp=None):
             os.makedirs(args.savepreddir)
 
     with model.sess:
-        '''
+        
         model.train(D1_trn, D2_trn, D3_trn, D4_trn, D5_trn, molsup_trn, \
                         #D1_val, D2_val, D3_val, D4_val, D5_val, molsup_val, \
-                        #load_path=args.loaddir, save_path=save_path, \
-                        #train_event_path=args.train_eventdir, valid_event_path=args.valid_eventdir, \
-                        #log_train_steps=args.log_train_steps, tm_trn=tm_trn, tm_val=tm_val, \
+                        load_path=args.loaddir, save_path=save_path, \
+                        train_event_path=args.train_eventdir, valid_event_path=args.valid_eventdir, \
+                        log_train_steps=args.log_train_steps, tm_trn=tm_trn, tm_val=tm_val, \
                         w_reg=args.w_reg, \
                         debug=args.debug, exp=exp)
-        '''
-        print("Test size")
-        print(D1_tst.shape)            
+        
+        #print("Test size: " + str(D1_tst.shape))
+        #print("Load path: " + args.loaddir)        
         model.test(D1_tst, D2_tst, D3_tst, D4_tst, D5_tst, molsup_tst, \
-                            #load_path=args.loaddir, tm_v=tm_tst, debug=args.debug, \
-                            #savepred_path=args.savepreddir, savepermol=args.savepermol, 
+                            load_path=args.loaddir, tm_v=tm_tst, debug=args.debug, \
+                            savepred_path=args.savepreddir, savepermol=args.savepermol, 
                             useFF=args.useFF)
         
 
@@ -240,7 +240,7 @@ if __name__ == '__main__':
     parser.add_argument('--savepreddir', type=str, default=None,
                         help='path where predictions of the network are save')
     parser.add_argument('--savepermol', action='store_true', help='save results per molecule')
-    parser.add_argument('--loaddir', type=str, default="checkpoints/")
+    parser.add_argument('--loaddir', type=str, default=None)
     parser.add_argument('--model_name', type=str, default='neuralnet')
     parser.add_argument('--alignment_type', type=str, default='kabsch', choices=['default', 'linear', 'kabsch'])
     parser.add_argument('--virtual_node', action='store_true', help='use virtual node')

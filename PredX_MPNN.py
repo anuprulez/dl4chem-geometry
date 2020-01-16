@@ -127,20 +127,20 @@ class Model(object):
 
 
     def test(self, D1_v, D2_v, D3_v, D4_v, D5_v, MS_v, 
-            #load_path = None, tm_v=None, debug=False, savepred_path=None, savepermol=False, 
+            load_path = None, tm_v=None, debug=False, savepred_path=None, savepermol=False, 
             useFF=False):
                 
         sess = tf.Session(config=self.cpu_config)
-        #if load_path is not None:
-        #    print(load_path)
-        load_path = "data/mol_model-2.meta"
+        if load_path is not None:
+            print(load_path)
+        #load_path = "data/mol_model-2.meta" #
+        load_path = "checkpoints/model.ckpt-2.meta"
         saver = tf.train.import_meta_graph(load_path)
-        saver.restore(sess, tf.train.latest_checkpoint('data/'))
+        saver.restore(sess, tf.train.latest_checkpoint('checkpoints/'))
         graph = tf.get_default_graph()
         #gf_nodes = [n.name for n in graph.as_graph_def().node if "g_nnpostX/X_pred_1" in n.name]
         refine_mom=0.99
         #print(gf_nodes)
-        #self.saver.restore( self.sess, load_path )
 
         # val batch size is different from train batch size
         # since we use multiple samples
@@ -154,9 +154,9 @@ class Model(object):
         valscores_mean = np.zeros(val_size)
         valscores_std = np.zeros(val_size)
 
-        '''if savepred_path != None:
+        if savepred_path != None:
             if not savepermol:
-                pred_v = np.zeros((len(D1_v), self.val_num_samples, self.n_max, 3))'''
+                pred_v = np.zeros((len(D1_v), self.val_num_samples, self.n_max, 3))
         n_batch_val = 1
         print ("testing model...")
         node = graph.get_tensor_by_name("node:0")
@@ -167,15 +167,12 @@ class Model(object):
         proximity = graph.get_tensor_by_name("proximity:0")
         pos_to_proximity = self._pos_to_proximity(pos)
         mask = graph.get_tensor_by_name("mask:0")
-        '''X_pred = pkl.load(open('X_pred.p', 'rb'))
-        PX_pred = pkl.load(open('PX_pred.p', 'rb'))'''
         X_pred = graph.get_tensor_by_name("g_nnpostX/X_pred_1:0")
-        PX_pred = graph.get_tensor_by_name("g_nnpostX_2/PX_pred_1:0")
+        PX_pred = graph.get_tensor_by_name("g_nnpostX_2/PX_pred:0")
+
+        #print([n.name for n in graph.as_graph_def().node if "PX_pred" in n.name])
         b_size = tf.placeholder(dtype=tf.int32)
         print(X_pred.shape)
-        print(PX_pred.shape)
-        #PX_pred = tf.reshape(PX_pred, (val_batch_size, D1_v.shape[1], D1_v.shape[2]))
-        #PX_pred = PX_pred[0:1, :, :]
         print(PX_pred.shape)
         use_X = False
         use_R = True
@@ -190,9 +187,7 @@ class Model(object):
             mask_val = np.repeat(D2_v[start_:end_], val_num_samples, axis=0)
             edge_val = np.repeat(D3_v[start_:end_], val_num_samples, axis=0)
             proximity_val = np.repeat(D4_v[start_:end_], val_num_samples, axis=0)
-
             dict_val = {node: node_val, mask: mask_val, edge: edge_val, trn_flag: False, b_size: [batch_size]}
-
             if self.virtual_node:
                 true_masks_val = np.repeat(tm_v[start_:end_], val_num_samples, axis=0)
                 dict_val[true_masks] = true_masks_val
@@ -203,7 +198,7 @@ class Model(object):
             '''if savepred_path != None:
                 if not savepermol:
                     pred_v[start_:end_] = D5_batch.reshape(val_batch_size, self.val_num_samples, self.n_max, 3)'''
-
+            print(D5_batch.shape)
             # iterative refinement of posterior
             D5_batch_pred = copy.deepcopy(D5_batch)
             for r in range(self.refine_steps):
@@ -222,15 +217,15 @@ class Model(object):
             for j in range(D5_batch_pred.shape[0]):
                 ms_v_index = int(j / val_num_samples) + start_
                 res = self.getRMS(MS_v[ms_v_index], D5_batch_pred[j], useFF)
+                print(res)
                 valres.append(res)
-
             valres = np.array(valres)
-            valres = np.reshape(valres, (val_batch_size, self.val_num_samples))
+            '''valres = np.reshape(valres, (val_batch_size, self.val_num_samples))
             valres_mean = np.mean(valres, axis=1)
             valres_std = np.std(valres, axis=1)
 
             valscores_mean[start_:end_] = valres_mean
-            valscores_std[start_:end_] = valres_std
+            valscores_std[start_:end_] = valres_std'''
 
             # save results per molecule if request
             '''if savepermol:
@@ -240,13 +235,13 @@ class Model(object):
                     pkl.dump(save_dict_tt, \
                         open(os.path.join(savepred_path, 'mol_{}_neuralnet.p'.format(tt+start_)), 'wb'))'''
 
-        print ("val scores: mean is {} , std is {}".format(np.mean(valscores_mean), np.mean(valscores_std)))
+        #print ("val scores: mean is {} , std is {}".format(np.mean(valscores_mean), np.mean(valscores_std)))
         '''if savepred_path != None:
             if not savepermol:
                 print ("saving neural net predictions into {}".format(savepred_path))
                 pkl.dump(pred_v, open(savepred_path, 'wb'))'''
         #print(np.mean(valscores_mean), np.mean(valscores_std))
-        return np.mean(valscores_mean), np.mean(valscores_std)
+        #return np.mean(valscores_mean), np.mean(valscores_std)
 
     def getRMS(self, prb_mol, ref_pos, useFF=False):
 
@@ -281,17 +276,19 @@ class Model(object):
 
     def train(self, D1_t, D2_t, D3_t, D4_t, D5_t, MS_t, 
              #D1_v, D2_v, D3_v, D4_v, D5_v, MS_v,\
-            #load_path = None, save_path = None, 
-            #train_event_path = None, valid_event_path = None,\
-            #og_train_steps=0, tm_trn=None, tm_val=None, 
+            load_path = None, save_path = None, 
+            train_event_path = None, valid_event_path = None,\
+            log_train_steps=0, tm_trn=None, tm_val=None, 
             w_reg=1e-3, debug=False, exp=None
         ):
         #if exp is not None:
         #data_path = exp.get_data_path(exp.name, exp.version)
-        '''save_path = os.path.join('checkpoints/model.ckpt')
+        #save_path = os.path.join('checkpoints/model.ckpt')
+        #print(save_path, flush=True)
+        save_path = os.path.join('checkpoints/model.ckpt')
         event_path = os.path.join('event/')
         print(save_path, flush=True)
-        print(event_path, flush=True)'''
+        print(event_path, flush=True)
         # SummaryWriter
         '''if not debug:
             train_summary_writer = SummaryWriter(train_event_path)
@@ -372,7 +369,7 @@ class Model(object):
                 exp_dict['train_score'] = np.mean(trnscores,0)
                 
             #if save_path is not None and not debug:
-            self.saver.save( self.sess, "data/mol_model", global_step=num_epochs )
+            #self.saver.save( self.sess, "data/mol_model", global_step=num_epochs )
         
             '''valscores_mean, valscores_std = self.test(D1_v, D2_v, D3_v, D4_v, D5_v, MS_v, \
                                             load_path=None, tm_v=tm_val, debug=debug)
@@ -396,7 +393,7 @@ class Model(object):
                 exp_dict['best val mean'] = np.min(valaggr_mean[0:epoch+1])
                 exp_dict['std of best val mean'] = np.min(valaggr_std[0:epoch+1])
                 exp.log(exp_dict)
-                exp.save()
+                exp.save()'''
 
             if save_path is not None and not debug:
                 self.saver.save( self.sess, save_path, global_step=num_epochs )
@@ -410,7 +407,7 @@ class Model(object):
                     best_model_name = model_name.split('.')[0] + '_best.' + '.'.join(model_name.split('.')[1:])
                     full_best_model_path = os.path.join(model_path, best_model_name)
                     full_model_path = ckpt_f
-                    shutil.copyfile(full_model_path, full_best_model_path)'''
+                    shutil.copyfile(full_model_path, full_best_model_path)
         self.sess.close()
 
     def do_mask(self, vec, m):
