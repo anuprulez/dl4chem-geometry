@@ -248,7 +248,6 @@ class Model(object):
         num_epochs = epochs #2500
         valaggr_mean = np.zeros(num_epochs)
         valaggr_std = np.zeros(num_epochs)
-
         for epoch in range(num_epochs):
             [D1_t, D2_t, D3_t, D4_t, D5_t] = self._permutation([D1_t, D2_t, D3_t, D4_t, D5_t])
 
@@ -273,7 +272,6 @@ class Model(object):
                 assert np.sum(np.isnan(trnresult)) == 0
                 trnscores[i,:] = trnresult
             print(np.mean(trnscores,0), flush=True)
-
             if save_path is not None and not debug:
                 self.saver.save(self.sess, save_path, global_step=num_epochs)
             # keep track of the best model as well in the separate checkpoint
