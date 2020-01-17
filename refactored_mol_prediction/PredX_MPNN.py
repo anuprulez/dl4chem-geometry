@@ -21,7 +21,7 @@ class Model(object):
     def __init__(self, data, n_max, dim_node, dim_edge, dim_h, dim_f, \
                 batch_size, \
                 mpnn_steps=5, alignment_type='default', tol=1e-5, \
-                use_X=True, use_R=True, virtual_node=False, seed=0, \
+                use_X=True, use_R=True, seed=0, \
                 refine_steps=0, refine_mom=0.99, prior_T=1, num_cpus=8):
                 
         self.cpu_config = tf.ConfigProto(
@@ -41,7 +41,6 @@ class Model(object):
         self.n_max, self.dim_node, self.dim_edge, self.dim_h, self.dim_f = n_max, dim_node, dim_edge, dim_h, dim_f
         #self.val_num_samples = val_num_samples
         self.tol = tol
-        self.virtual_node = virtual_node
         self.refine_steps = refine_steps
         self.refine_mom = refine_mom
         self.use_X = use_X
@@ -68,11 +67,7 @@ class Model(object):
         self.pos = tf.placeholder(tf.float32, [self.batch_size, self.n_max, 3], name="pos")
         self.pos_to_proximity = self._pos_to_proximity(self.pos)
         self.proximity = tf.placeholder(tf.float32, [self.batch_size, self.n_max, self.n_max], name="proximity")
-        if self.virtual_node:
-            self.true_masks = tf.placeholder(tf.float32, [self.batch_size, self.n_max, 1], name="true_masks")
-            mask = self.true_masks
-        else:
-            mask = self.mask
+        mask = self.mask
         self.trn_flag = tf.placeholder(tf.bool, name="train_flag")
 
         # number of atoms
@@ -126,9 +121,7 @@ class Model(object):
         self.saver = tf.train.Saver()
 
 
-    def test(self, D1_v, D2_v, D3_v, D4_v, D5_v, MS_v, 
-            load_path = None, tm_v=None, debug=False, savepred_path=None, savepermol=False, 
-            useFF=False, batch_size=5, val_num_samples=10):
+    def test(self, D1_v, D2_v, D3_v, D4_v, D5_v, MS_v, load_path = None, useFF=False, batch_size=10, val_num_samples=5):
                 
         sess = tf.Session(config=self.cpu_config)
         if load_path is not None:
@@ -227,27 +220,17 @@ class Model(object):
 
 
     def train(self, D1_t, D2_t, D3_t, D4_t, D5_t, MS_t, 
-             #D1_v, D2_v, D3_v, D4_v, D5_v, MS_v,\
-            load_path = None, save_path = None, 
-            train_event_path = None, valid_event_path = None,\
-            log_train_steps=0, tm_trn=None, tm_val=None, 
-            w_reg=1e-3, debug=False, exp=None, epochs=10
+            load_path = None, save_path = None, w_reg=1e-3, epochs=10
         ):
 
         save_path = os.path.join('checkpoints/model.ckpt')
-        event_path = os.path.join('event/')
         print(save_path, flush=True)
-        print(event_path, flush=True)
-        # SummaryWriter
-        '''if not debug:
-            train_summary_writer = SummaryWriter(train_event_path)
-            valid_summary_writer = SummaryWriter(valid_event_path)'''
 
         # objective functions
         cost_KLDZ = tf.reduce_mean( tf.reduce_sum( self._KLD(self.postZ_mu, self.postZ_lsgms, self.priorZ_mu, self.priorZ_lsgms), [1, 2]) ) # posterior | prior
         cost_KLD0 = tf.reduce_mean( tf.reduce_sum( self._KLD_zero(self.priorZ_mu, self.priorZ_lsgms), [1, 2]) ) # prior | N(0,1)
 
-        mask = self.true_masks if self.virtual_node else self.mask
+        mask = self.mask
         cost_X = tf.reduce_mean( self.msd_func(self.X_pred, self.pos, mask) )
 
         cost_op = cost_X + cost_KLDZ + w_reg * cost_KLD0 #hyperparameters!
@@ -255,12 +238,9 @@ class Model(object):
 
         self.sess.run(tf.global_variables_initializer())
         self.sess.graph.finalize()
-        #if load_path is not None:
-        #    self.saver.restore( self.sess, load_path )
 
         # session
         n_batch = int(len(D1_t)/self.batch_size)
-        #n_batch_val = int(len(D1_v)/self.batch_size)
         np.set_printoptions(precision=5, suppress=True)
 
         # training
@@ -278,22 +258,11 @@ class Model(object):
                 start_ = i * self.batch_size
                 end_ = start_ + self.batch_size
 
-                if self.virtual_node:
-                    trnresult = self.sess.run([train_op, cost_op, cost_X, cost_KLDZ, cost_KLD0],
-                                              feed_dict={self.node: D1_t[start_:end_], self.mask: D2_t[start_:end_],
-                                                         self.edge: D3_t[start_:end_],
-                                                         self.proximity: D4_t[start_:end_],
-                                                         self.pos: D5_t[start_:end_],
-                                                         self.true_masks: tm_trn[start_:end_],
-                                                         self.b_size: [self.batch_size],
-                                                         self.trn_flag: True})
-                else:
-                    trnresult = self.sess.run([train_op, cost_op, cost_X, cost_KLDZ, cost_KLD0],
+                trnresult = self.sess.run([train_op, cost_op, cost_X, cost_KLDZ, cost_KLD0],
                                     feed_dict = {self.node: D1_t[start_:end_], self.mask: D2_t[start_:end_],
                                                  self.edge: D3_t[start_:end_], self.proximity: D4_t[start_:end_],
                                                  self.pos: D5_t[start_:end_], self.trn_flag: True,
                                                  self.b_size: [self.batch_size]})
-
                 trnresult = trnresult[1:]
                 if debug:
                     print (i, n_batch)
@@ -301,51 +270,12 @@ class Model(object):
 
                 # log results
                 curr_iter = epoch * n_batch + i
-
-                '''if not debug:
-                    if curr_iter % log_train_steps == 0:
-                        train_summary_writer.add_scalar("train/cost_op", trnresult[0], curr_iter)
-                        train_summary_writer.add_scalar("train/cost_X", trnresult[1], curr_iter)
-                        train_summary_writer.add_scalar("train/cost_KLDZ", trnresult[2], curr_iter)
-                        train_summary_writer.add_scalar("train/cost_KLD0", trnresult[3], curr_iter)'''
-
                 assert np.sum(np.isnan(trnresult)) == 0
                 trnscores[i,:] = trnresult
             print(np.mean(trnscores,0), flush=True)
-            exp_dict = {}
-            if exp is not None:
-                exp_dict['training epoch id'] = epoch
-                exp_dict['train_score'] = np.mean(trnscores,0)
-                
-            #if save_path is not None and not debug:
-            #self.saver.save( self.sess, "data/mol_model", global_step=num_epochs )
-        
-            '''valscores_mean, valscores_std = self.test(D1_v, D2_v, D3_v, D4_v, D5_v, MS_v, \
-                                            load_path=None, tm_v=tm_val, debug=debug)
-
-            valaggr_mean[epoch] = valscores_mean
-            valaggr_std[epoch] = valscores_std
-
-            if not debug:
-                valid_summary_writer.add_scalar("val/valscores_mean", valscores_mean, epoch)
-                valid_summary_writer.add_scalar("val/min_valscores_mean", np.min(valaggr_mean[0:epoch+1]), epoch)
-                valid_summary_writer.add_scalar("val/valscores_std", valscores_std, epoch)
-                valid_summary_writer.add_scalar("val/min_valscores_std", np.min(valaggr_std[0:epoch+1]), epoch)
-
-            #print('::: training epoch id', epoch, ':: --- val : ', np.mean(valscores, 0), '--- min : ', np.min(valaggr[0:epoch+1]), flush=True)
-            #print('::: training epoch id', epoch, ':: --- val mean {} std {} : ', valscores_mean, valscores_std, '--- min mean {} std {} : ', np.min(valaggr_mean[0:epoch+1]), flush=True)
-            print ('::: training epoch id {} :: --- val mean={} , std={} ; --- best val mean={} , std={} '.format(\
-                    epoch, valscores_mean, valscores_std, np.min(valaggr_mean[0:epoch+1]), np.min(valaggr_std[0:epoch+1])))
-            if exp is not None:
-                exp_dict['val mean'] = valscores_mean
-                exp_dict['std'] = valscores_std
-                exp_dict['best val mean'] = np.min(valaggr_mean[0:epoch+1])
-                exp_dict['std of best val mean'] = np.min(valaggr_std[0:epoch+1])
-                exp.log(exp_dict)
-                exp.save()'''
 
             if save_path is not None and not debug:
-                self.saver.save( self.sess, save_path, global_step=num_epochs )
+                self.saver.save(self.sess, save_path, global_step=num_epochs)
             # keep track of the best model as well in the separate checkpoint
             # it is done by copying the checkpoint
             if valaggr_mean[epoch] == np.min(valaggr_mean[0:epoch+1]) and not debug:
