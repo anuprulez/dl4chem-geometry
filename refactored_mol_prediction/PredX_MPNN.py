@@ -120,105 +120,6 @@ class Model(object):
 
         self.saver = tf.train.Saver()
 
-
-    def test(self, D1_v, D2_v, D3_v, D4_v, D5_v, MS_v, load_path = None, useFF=False, batch_size=10, val_num_samples=5):
-                
-        sess = tf.Session(config=self.cpu_config)
-        if load_path is not None:
-            print(load_path)
-        saver = tf.train.import_meta_graph(load_path)
-        saver.restore(sess, tf.train.latest_checkpoint('checkpoints/'))
-        graph = tf.get_default_graph()
-        refine_mom=0.99
-        val_batch_size = int(batch_size / val_num_samples)
-        n_batch_val = int(len(D1_v)/val_batch_size)
-        val_size = D1_v.shape[0]
-        valscores_mean = np.zeros(val_size)
-        valscores_std = np.zeros(val_size)
-        
-        print(val_batch_size, n_batch_val, val_size)
-
-        print ("testing model...")
-        node = graph.get_tensor_by_name("node:0")
-        mask = graph.get_tensor_by_name("mask:0")
-        edge = graph.get_tensor_by_name("edge:0")
-        trn_flag = graph.get_tensor_by_name("train_flag:0")
-        pos = graph.get_tensor_by_name("pos:0")
-        proximity = graph.get_tensor_by_name("proximity:0")
-        pos_to_proximity = self._pos_to_proximity(pos)
-        mask = graph.get_tensor_by_name("mask:0")
-        X_pred = graph.get_tensor_by_name("g_nnpostX/X_pred_1:0")
-        PX_pred = graph.get_tensor_by_name("g_nnpostX_2/PX_pred:0")
-
-        b_size = tf.placeholder(dtype=tf.int32)
-        use_X = False
-        use_R = True
-        valres=[]
-        for i in range(n_batch_val):
-            start_ = i * val_batch_size
-            end_ = start_ + val_batch_size
-            # input data is repeated to get more than 1 predictions for a molecule and take average prediction
-            node_val = np.repeat(D1_v[start_:end_], val_num_samples, axis=0)
-            mask_val = np.repeat(D2_v[start_:end_], val_num_samples, axis=0)
-            edge_val = np.repeat(D3_v[start_:end_], val_num_samples, axis=0)
-            proximity_val = np.repeat(D4_v[start_:end_], val_num_samples, axis=0)
-            dict_val = {node: node_val, mask: mask_val, edge: edge_val, trn_flag: False, b_size: [batch_size]}
-            D5_batch = sess.run(PX_pred, feed_dict=dict_val)
-            # iterative refinement of posterior
-            D5_batch_pred = copy.deepcopy(D5_batch)
-            for r in range(self.refine_steps):
-                if use_X:
-                    dict_val[pos] = D5_batch_pred
-                if use_R:
-                    pred_proximity = sess.run(pos_to_proximity, \
-                                        feed_dict={pos: D5_batch_pred, \
-                                                    mask:mask_val, b_size: [batch_size]})
-                    dict_val[proximity] = pred_proximity
-                D5_batch = sess.run(X_pred, feed_dict=dict_val)
-                D5_batch_pred = \
-                    refine_mom * D5_batch_pred + (1-refine_mom) * D5_batch
-            valres=[]
-            for j in range(D5_batch_pred.shape[0]):
-                ms_v_index = int(j / val_num_samples) + start_
-                res = self.getRMS(MS_v[ms_v_index], D5_batch_pred[j], useFF)
-                valres.append(res)
-            valres = np.array(valres)
-            valres = np.reshape(valres, (val_batch_size, val_num_samples))
-            valres_mean = np.mean(valres, axis=1)
-            valres_std = np.std(valres, axis=1)
-            valscores_mean[start_:end_] = valres_mean
-            valscores_std[start_:end_] = valres_std
-        print ("val scores: mean is {} , std is {}".format(np.mean(valscores_mean), np.mean(valscores_std)))
-
-    def getRMS(self, prb_mol, ref_pos, useFF=False):
-        def optimizeWithFF(mol):
-
-            molf = Chem.AddHs(mol, addCoords=True)
-            AllChem.MMFFOptimizeMolecule(molf)
-            molf = Chem.RemoveHs(molf)
-
-            return molf
-
-        n_est = prb_mol.GetNumAtoms()
-        ref_cf = Chem.rdchem.Conformer(n_est)
-        for k in range(n_est):
-            ref_cf.SetAtomPosition(k, ref_pos[k].tolist())
-
-        ref_mol = copy.deepcopy(prb_mol)
-        ref_mol.RemoveConformer(0)
-        ref_mol.AddConformer(ref_cf)
-
-        if useFF:
-            try:
-                res = AllChem.AlignMol(prb_mol, optimizeWithFF(ref_mol))
-            except:
-                res = AllChem.AlignMol(prb_mol, ref_mol)
-        else:
-            res = AllChem.AlignMol(prb_mol, ref_mol)
-
-        return res
-
-
     def train(self, D1_t, D2_t, D3_t, D4_t, D5_t, MS_t, 
             load_path = None, save_path = None, w_reg=1e-3, epochs=10
         ):
@@ -263,20 +164,17 @@ class Model(object):
                                                  self.pos: D5_t[start_:end_], self.trn_flag: True,
                                                  self.b_size: [self.batch_size]})
                 trnresult = trnresult[1:]
-                if debug:
-                    print (i, n_batch)
-                    print(trnresult, flush=True)
 
                 # log results
                 curr_iter = epoch * n_batch + i
                 assert np.sum(np.isnan(trnresult)) == 0
                 trnscores[i,:] = trnresult
             print(np.mean(trnscores,0), flush=True)
-            if save_path is not None and not debug:
+            if save_path is not None:
                 self.saver.save(self.sess, save_path, global_step=num_epochs)
             # keep track of the best model as well in the separate checkpoint
             # it is done by copying the checkpoint
-            if valaggr_mean[epoch] == np.min(valaggr_mean[0:epoch+1]) and not debug:
+            if valaggr_mean[epoch] == np.min(valaggr_mean[0:epoch+1]):
                 for ckpt_f in glob.glob(save_path + '*'):
                     model_name_split = ckpt_f.split('/')
                     model_path = '/'.join(model_name_split[:-1])

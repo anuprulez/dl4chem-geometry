@@ -59,7 +59,7 @@ def train(args, exp=None):
     molsup_tst =molsup[ntrn:ntrn+ntst]
     
     # set aside test data
-    test_data = data_path() + '_test.p'
+    test_data = data_path() + 'mol_test.p'
     with open(test_data,'wb') as f:
         pkl.dump([D1_tst, D2_tst, D3_tst, D4_tst, D5_tst, molsup_tst], f)
     
@@ -83,10 +83,7 @@ def train(args, exp=None):
         model.train(D1_trn, D2_trn, D3_trn, D4_trn, D5_trn, molsup_trn, \
                         load_path=args.loaddir, save_path=save_path, \
                         w_reg=args.w_reg, epochs=args.num_epochs)
-        
-        '''model.test(D1_tst, D2_tst, D3_tst, D4_tst, D5_tst, molsup_tst, \
-                            load_path=args.loaddir, \
-                            useFF=args.useFF, batch_size=args.batch_size, val_num_samples=args.val_num_samples)'''
+        print(":: training finished")
 
 if __name__ == '__main__':
 
@@ -101,7 +98,7 @@ if __name__ == '__main__':
     parser.add_argument('--model_name', type=str, default='neuralnet')
     parser.add_argument('--alignment_type', type=str, default='kabsch', choices=['default', 'linear', 'kabsch'])
     parser.add_argument('--test', action='store_true', help='test mode')
-    parser.add_argument('--test_size', default=0.5, help='size of test data')
+    parser.add_argument('--test_size', default=0.4, help='size of test data')
     parser.add_argument('--seed', type=int, default=1334, help='random seed for experiments')
     parser.add_argument('--batch_size', type=int, default=10, help='batch size')
     parser.add_argument('--tol', type=float, default=1e-5, help='tolerance for masking used in svd calculation')
