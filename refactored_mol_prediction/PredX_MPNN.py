@@ -120,11 +120,9 @@ class Model(object):
 
         self.saver = tf.train.Saver()
 
-    def train(self, D1_t, D2_t, D3_t, D4_t, D5_t, MS_t, 
-            load_path = None, save_path = None, w_reg=1e-3, epochs=10
-        ):
+    def train(self, D1_t, D2_t, D3_t, D4_t, D5_t, MS_t, load_path=None, save_path=None, w_reg=1e-3, epochs=10):
 
-        save_path = os.path.join('checkpoints/model.ckpt')
+        save_path = os.path.join(load_path)
         print(save_path, flush=True)
 
         # objective functions
@@ -170,11 +168,11 @@ class Model(object):
                 assert np.sum(np.isnan(trnresult)) == 0
                 trnscores[i,:] = trnresult
             print(np.mean(trnscores,0), flush=True)
-            if save_path is not None:
-                self.saver.save(self.sess, save_path, global_step=num_epochs)
+        if save_path is not None:
+            self.saver.save(self.sess, save_path)
             # keep track of the best model as well in the separate checkpoint
             # it is done by copying the checkpoint
-            if valaggr_mean[epoch] == np.min(valaggr_mean[0:epoch+1]):
+            '''if valaggr_mean[epoch] == np.min(valaggr_mean[0:epoch+1]):
                 for ckpt_f in glob.glob(save_path + '*'):
                     model_name_split = ckpt_f.split('/')
                     model_path = '/'.join(model_name_split[:-1])
@@ -182,7 +180,7 @@ class Model(object):
                     best_model_name = model_name.split('.')[0] + '_best.' + '.'.join(model_name.split('.')[1:])
                     full_best_model_path = os.path.join(model_path, best_model_name)
                     full_model_path = ckpt_f
-                    shutil.copyfile(full_model_path, full_best_model_path)
+                    shutil.copyfile(full_model_path, full_best_model_path)'''
         self.sess.close()
 
     def do_mask(self, vec, m):

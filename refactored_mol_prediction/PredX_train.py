@@ -42,8 +42,6 @@ def train(args, exp=None):
     ntrn = len(D5)-ntst
     [molsup, molsmi] = pkl.load(open(molset_fname,'rb'))
     
-    print(ntrn, ntst)
-    
     D1_trn = D1[:ntrn]
     D2_trn = D2[:ntrn]
     D3_trn = D3[:ntrn]
@@ -98,7 +96,7 @@ if __name__ == '__main__':
     parser.add_argument('--model_name', type=str, default='neuralnet')
     parser.add_argument('--alignment_type', type=str, default='kabsch', choices=['default', 'linear', 'kabsch'])
     parser.add_argument('--test', action='store_true', help='test mode')
-    parser.add_argument('--test_size', default=0.4, help='size of test data')
+    parser.add_argument('--test_size', default=0.2, help='size of test data')
     parser.add_argument('--seed', type=int, default=1334, help='random seed for experiments')
     parser.add_argument('--batch_size', type=int, default=10, help='batch size')
     parser.add_argument('--tol', type=float, default=1e-5, help='tolerance for masking used in svd calculation')
