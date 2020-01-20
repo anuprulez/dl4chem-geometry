@@ -93,8 +93,8 @@ def test(args, exp=None):
     
     sess = tf.Session(config=cpu_config)
     with sess:
-        saver = tf.train.import_meta_graph(load_path)
-        saver.restore(sess, tf.train.latest_checkpoint(os.path.dirname(load_path) + '/'))
+        saver = tf.train.import_meta_graph(load_path + ".meta")
+        saver.restore(sess, load_path)
         graph = tf.get_default_graph()
 
         val_batch_size = int(batch_size/val_num_samples)

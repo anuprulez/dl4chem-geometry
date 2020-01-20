@@ -1,1 +1,1 @@
-python PredX_test.py --loaddir checkpoints/model.ckpt.meta 
+python PredX_test.py --loaddir checkpoints/model.ckpt 
