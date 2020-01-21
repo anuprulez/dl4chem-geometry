@@ -1,1 +1,1 @@
-python COD_featurize.py --loaddir data/ --savedir data/ --loadfile data/CODconh25.p --num_mol 1000
+python COD_featurize.py --loaddir data/ --savedir data/ --loadfile data/CODconh.p --num_mol 40 --num_atoms 30

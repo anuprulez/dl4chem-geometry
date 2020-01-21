@@ -8,9 +8,14 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 import copy
 import os
+import zipfile
 
     
 def getRMS(prb_mol, ref_pos, useFF=False):
+    '''
+    Compute the root mean square distance 
+    between true and predicted conformation
+    '''
     def optimizeWithFF(mol):
 
         molf = Chem.AddHs(mol, addCoords=True)
@@ -26,8 +31,9 @@ def getRMS(prb_mol, ref_pos, useFF=False):
 
     ref_mol = copy.deepcopy(prb_mol)
     ref_mol.RemoveConformer(0)
+    # add predicted conformation to molecule
     ref_mol.AddConformer(ref_cf)
-
+    # compute error
     if useFF:
         try:
             res = AllChem.AlignMol(prb_mol, optimizeWithFF(ref_mol))
@@ -57,10 +63,28 @@ def _pos_to_proximity(pos, batch_size, n_max, mask, reuse=True): #[batch_size, n
         proximity = tf.matrix_set_diag(proximity, [[0] * n_max] * batch_size)
 
     return proximity
+    
+def extract_model(load_path):
+    '''
+    Extract files from model
+    '''
+    dir_name = os.path.dirname(load_path)
+    with zipfile.ZipFile(load_path, 'r') as zip_ref:
+        zip_ref.extractall(dir_name)
+        
+def set_cpu(num_cpus):
+    cpu_config = tf.ConfigProto(
+        device_count={"CPU": num_cpus, "GPU": 1},
+        intra_op_parallelism_threads=num_cpus,
+        inter_op_parallelism_threads=num_cpus,
+        allow_soft_placement=True
+    )
+    return cpu_config
 
-def test(args, exp=None):
-
-    n_max = 50
+def predict(args):
+    '''
+    Predict position of atoms for a new molecule
+    '''
     batch_size = args.batch_size
     val_num_samples = args.val_num_samples
     num_cpus = args.num_cpus
@@ -71,30 +95,29 @@ def test(args, exp=None):
     refine_mom = float(args.refine_mom)
     use_X = args.use_X
     use_R = args.use_R
-    load_path = args.loaddir
-    test_file = args.testfile
+    load_path = args.path_model
+    test_file = args.test_file
     
-    cpu_config = tf.ConfigProto(
-        device_count={"CPU": num_cpus, "GPU": 1},
-        intra_op_parallelism_threads=num_cpus,
-        inter_op_parallelism_threads=num_cpus,
-        allow_soft_placement=True
-    )
-
     print('::: load data')
     [D1_tst, D2_tst, D3_tst, D4_tst, D5_tst, molsup_tst] = pkl.load(open(test_file,'rb'))
 
+    # maximum number of atoms
+    n_max = D1_tst.shape[1]
+
     print ('::: num test samples is ')
     print(D1_tst.shape, D3_tst.shape)
-    
-    tf.reset_default_graph()
 
-    print(":: load model " + load_path)
-    
-    sess = tf.Session(config=cpu_config)
+    print("::: load model " + load_path)
+    extract_model(load_path)
+
+    tf.reset_default_graph()
+    sess = tf.Session(config=set_cpu(num_cpus))
     with sess:
-        saver = tf.train.import_meta_graph(load_path + ".meta")
-        saver.restore(sess, load_path)
+        trained_model_path = "{}/{}".format(os.path.dirname(load_path), args.model_name)
+        # import graph
+        saver = tf.train.import_meta_graph(trained_model_path + ".meta")
+        # restore model session
+        saver.restore(sess, trained_model_path)
         graph = tf.get_default_graph()
 
         val_batch_size = int(batch_size/val_num_samples)
@@ -102,8 +125,9 @@ def test(args, exp=None):
         val_size = D1_tst.shape[0]
         valscores_mean = np.zeros(val_size)
         valscores_std = np.zeros(val_size)
-    
-        print ("testing model...")
+
+        print ("::: testing model...")
+        # get the variable names from the loaded tensorflow graph
         node = graph.get_tensor_by_name("node:0")
         mask = graph.get_tensor_by_name("mask:0")
         edge = graph.get_tensor_by_name("edge:0")
@@ -113,10 +137,8 @@ def test(args, exp=None):
         pos_to_proximity = _pos_to_proximity(pos, batch_size, n_max, mask)
         X_pred = graph.get_tensor_by_name("g_nnpostX/X_pred:0")
         PX_pred = graph.get_tensor_by_name("g_nnpostX_2/PX_pred:0")
-
+        # define batch size variable
         b_size = tf.placeholder(dtype=tf.int32)
-        use_X = False
-        use_R = True
         valres=[]
         for i in range(n_batch_val):
             start_ = i * val_batch_size
@@ -130,20 +152,20 @@ def test(args, exp=None):
             D5_batch = sess.run(PX_pred, feed_dict=dict_val)
             # iterative refinement of posterior
             D5_batch_pred = copy.deepcopy(D5_batch)
+            print("::: refining posterior")
             for r in range(refine_steps):
                 if use_X:
                     dict_val[pos] = D5_batch_pred
                 if use_R:
-                    pred_proximity = sess.run(pos_to_proximity, \
-                                    feed_dict={pos: D5_batch_pred, \
-                                                mask:mask_val, b_size: [batch_size]})
+                    pred_proximity = sess.run(pos_to_proximity, feed_dict={pos: D5_batch_pred, mask:mask_val, b_size: [batch_size]})
                     dict_val[proximity] = pred_proximity
                 D5_batch = sess.run(X_pred, feed_dict=dict_val)
-                D5_batch_pred = \
-                refine_mom * D5_batch_pred + (1-refine_mom) * D5_batch
+                D5_batch_pred = refine_mom * D5_batch_pred + (1-refine_mom) * D5_batch
             valres=[]
+            print("::: computing RMSD")
             for j in range(D5_batch_pred.shape[0]):
                 ms_v_index = int(j / val_num_samples) + start_
+                # compute error between true and predicted conformations
                 res = getRMS(molsup_tst[ms_v_index], D5_batch_pred[j], useFF)
                 valres.append(res)
             valres = np.array(valres)
@@ -152,24 +174,24 @@ def test(args, exp=None):
             valres_std = np.std(valres, axis=1)
             valscores_mean[start_:end_] = valres_mean
             valscores_std[start_:end_] = valres_std
-        print ("val scores: mean is {} , std is {}".format(np.mean(valscores_mean), np.mean(valscores_std)))
+        print ("Test scores: mean RMSD is {}, standard deviation (RMSD) is {}".format(np.mean(valscores_mean), np.mean(valscores_std)))
 
 
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Test network')
-    parser.add_argument('--testfile', type=str, default='data/mol_test.p')
-    parser.add_argument('--loaddir', type=str, default='checkpoints/')
+    parser.add_argument('--test_file', type=str, default='data/mol_test.p')
+    parser.add_argument('--path_model', type=str, default='trained_model/tfmodel.zip')
+    parser.add_argument('--model_name', type=str, default='model.ckpt')
     parser.add_argument('--batch_size', type=int, default=10, help='batch size')
-    parser.add_argument('--val_num_samples', type=int, default=5,
-                        help='number of samples from prior used for validation')
+    parser.add_argument('--val_num_samples', type=int, default=5, help='number of samples from prior used for validation')
     parser.add_argument('--use_X', action='store_true', default=False, help='use X as input for posterior of Z')
     parser.add_argument('--use_R', action='store_true', default=True, help='use R(X) as input for posterior of Z')
     parser.add_argument('--refine_mom', type=float, default=0.99, help='momentum used for refinement')
-    parser.add_argument('--refine_steps', type=int, default=0, help='number of refinement steps if requested')
-    parser.add_argument('--useFF', action='store_true', help='use force field minimisation if testing')
+    parser.add_argument('--refine_steps', type=int, default=5, help='number of refinement steps if requested')
+    parser.add_argument('--useFF', default=True, action='store_true', help='use force field minimisation if testing')
     parser.add_argument('--num_cpus', default=8, help='number of CPUs')
 
     args = parser.parse_args()
 
-    test(args)
+    predict(args)

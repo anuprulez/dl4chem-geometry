@@ -11,10 +11,10 @@ import argparse
 parser = argparse.ArgumentParser()
 
 parser.add_argument('--virtual_node', action='store_true')
-parser.add_argument('--loaddir', type=str, default='./')
 parser.add_argument('--savedir', type=str, default='./')
 parser.add_argument('--loadfile', type=str, default='./')
 parser.add_argument('--num_mol', type=str, default=20)
+parser.add_argument('--num_atoms', type=str, default=20)
 
 
 args = parser.parse_args()
@@ -79,7 +79,7 @@ def bondFeatures(bbs, samering, shortpath):
 
 data='COD'
 n_min=2
-n_max=50
+n_max=int(args.num_atoms)
 atom_dim=35
 edge_dim=10
 virtual_node = args.virtual_node

@@ -1,35 +1,37 @@
-from __future__ import print_function
-
 import pickle as pkl
 import numpy as np
-from sklearn.metrics.pairwise import euclidean_distances
 import sys, gc, os
 import PredX_MPNN as MPNN
-#import scipy
-#from scipy import sparse
 import argparse
-import getpass
-from test_tube import HyperOptArgumentParser, Experiment
-from test_tube.hpc import SlurmCluster
+import zipfile
 
-def data_path():
-    return "data/"
+
+def zipCompress(path, ziph):
+        for root, dirs, files in os.walk(path):
+            for file in files:
+               ziph.write(os.path.join(path, file), file, compress_type=zipfile.ZIP_DEFLATED)
+               
+def create_dir(path):
+    if not os.path.exists(path):
+        os.makedirs(path)
 
 def train(args, exp=None):
-    n_max = 50
-    dim_node = 35
-    dim_edge = 10
+    n_max = args.n_max
+    dim_node = args.dim_node
+    dim_edge = args.dim_edge
     ntst = args.test_size
     dim_h = args.dim_h
     dim_f = args.dim_f
     batch_size = args.batch_size
+    data_file = args.datafile
 
-    if not os.path.exists(args.ckptdir):
-        os.makedirs(args.ckptdir)
+    create_dir(args.ckptdir)
 
-    save_path = os.path.join(args.ckptdir, args.model_name + '_model.ckpt')
-    molvec_fname = data_path() + args.data+'_molvec_'+str(n_max)+'.p'
-    molset_fname = data_path() + args.data+'_molset_'+str(n_max)+'.p'
+    # load data
+    #save_path = os.path.join(args.ckptdir, args.model_name + '_model.ckpt')
+    save_path = os.path.join(args.ckptdir, 'model.ckpt')
+    molvec_fname = data_file +'COD_molvec_'+str(n_max)+'.p'
+    molset_fname = data_file +'COD_molset_'+str(n_max)+'.p'
 
     print('::: load data')
     [D1, D2, D3, D4, D5] = pkl.load(open(molvec_fname,'rb'))
@@ -42,6 +44,7 @@ def train(args, exp=None):
     ntrn = len(D5)-ntst
     [molsup, molsmi] = pkl.load(open(molset_fname,'rb'))
     
+    # divide into train and test sets
     D1_trn = D1[:ntrn]
     D2_trn = D2[:ntrn]
     D3_trn = D3[:ntrn]
@@ -57,12 +60,13 @@ def train(args, exp=None):
     molsup_tst =molsup[ntrn:ntrn+ntst]
     
     # set aside test data
-    test_data = data_path() + 'mol_test.p'
+    test_data = data_file + 'mol_test.p'
     with open(test_data,'wb') as f:
         pkl.dump([D1_tst, D2_tst, D3_tst, D4_tst, D5_tst, molsup_tst], f)
-    
+
     print ('::: num train samples is ')
     print(D1_trn.shape, D3_trn.shape)
+
     print ('::: num test samples is ')
     print(D1_tst.shape, D3_tst.shape)
 
@@ -70,33 +74,34 @@ def train(args, exp=None):
 
     del D1, D2, D3, D4, D5, molsup
 
-    model = MPNN.Model(args.data, n_max, dim_node, dim_edge, dim_h, dim_f, batch_size, \
+    model = MPNN.Model(n_max, dim_node, dim_edge, dim_h, dim_f, batch_size, \
                         mpnn_steps=args.mpnn_steps, alignment_type=args.alignment_type, tol=args.tol,\
                         use_X=args.use_X, use_R=args.use_R, seed=args.seed, \
                         refine_steps=args.refine_steps, refine_mom=args.refine_mom, \
                         prior_T=args.prior_T)
 
     with model.sess:
-        
         model.train(D1_trn, D2_trn, D3_trn, D4_trn, D5_trn, molsup_trn, \
-                        load_path=args.loaddir, save_path=save_path, \
-                        w_reg=args.w_reg, epochs=args.num_epochs)
-        print(":: training finished")
+                        load_path=args.loaddir, w_reg=args.w_reg, epochs=args.num_epochs)
+        print("::: finished training")
+        # compress model files into one zipped file
+        create_dir(os.path.dirname(args.zipdir))
+        zipf = zipfile.ZipFile(args.zipdir, 'w')
+        zipCompress(os.path.dirname(save_path), zipf)
+        zipf.close()
+        print("::: zipped model ...")
+
 
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Train network')
 
-    parser.add_argument('--data', type=str, default='COD', choices=['COD', 'QM9', 'CSD'])
+    parser.add_argument('--datafile', type=str, default='data/')
+    parser.add_argument('--zipdir', type=str, default='trained_model/tfmodel.zip')
     parser.add_argument('--ckptdir', type=str, default='checkpoints/')
-    parser.add_argument('--savepreddir', type=str, default=None,
-                        help='path where predictions of the network are save')
-    parser.add_argument('--savepermol', action='store_true', help='save results per molecule')
     parser.add_argument('--loaddir', type=str, default=None)
-    parser.add_argument('--model_name', type=str, default='neuralnet')
     parser.add_argument('--alignment_type', type=str, default='kabsch', choices=['default', 'linear', 'kabsch'])
-    parser.add_argument('--test', action='store_true', help='test mode')
-    parser.add_argument('--test_size', default=0.2, help='size of test data')
+    parser.add_argument('--test_size', default=0.25, help='size of test data')
     parser.add_argument('--seed', type=int, default=1334, help='random seed for experiments')
     parser.add_argument('--batch_size', type=int, default=10, help='batch size')
     parser.add_argument('--tol', type=float, default=1e-5, help='tolerance for masking used in svd calculation')
@@ -105,10 +110,13 @@ if __name__ == '__main__':
     parser.add_argument('--use_R', action='store_true', default=True, help='use R(X) as input for posterior of Z')
     parser.add_argument('--w_reg', type=float, default=1e-5, help='weight for conditional prior regularization')
     parser.add_argument('--refine_mom', type=float, default=0.99, help='momentum used for refinement')
-    parser.add_argument('--refine_steps', type=int, default=0, help='number of refinement steps if requested')
-    parser.add_argument('--useFF', action='store_true', help='use force field minimisation if testing')
+    parser.add_argument('--refine_steps', type=int, default=5, help='number of refinement steps if requested')
+    parser.add_argument('--useFF', default=True, action='store_true', help='use force field minimisation if testing')
     parser.add_argument('--dim_h', type=int, default=50, help='dimension of the hidden')
     parser.add_argument('--dim_f', type=int, default=100, help='dimension of the hidden')
+    parser.add_argument('--n_max', type=int, default=30, help='maximum number of atoms')
+    parser.add_argument('--dim_node', type=int, default=35, help='dimension of the nodes')
+    parser.add_argument('--dim_edge', type=int, default=10, help='dimension of the edges')
     parser.add_argument('--mpnn_steps', type=int, default=5, help='number of mpnn steps')
     parser.add_argument('--num_epochs', type=int, default=10, help='number of training steps')
 

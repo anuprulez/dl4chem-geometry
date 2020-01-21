@@ -1,10 +1,7 @@
-from __future__ import print_function
-
 import numpy as np
 import tensorflow as tf
 from rdkit import Chem
 from rdkit.Chem import AllChem
-import tftraj.rmsd as rmsd
 import copy
 from tensorboardX import SummaryWriter
 from tf_rmsd import tf_centroid, tf_centroid_masked, tf_kabsch_rmsd_masked, tf_kabsch_rmsd
@@ -16,9 +13,10 @@ import os
 import shutil
 import pickle as pkl
 
+
 class Model(object):
 
-    def __init__(self, data, n_max, dim_node, dim_edge, dim_h, dim_f, \
+    def __init__(self, n_max, dim_node, dim_edge, dim_h, dim_f, \
                 batch_size, \
                 mpnn_steps=5, alignment_type='default', tol=1e-5, \
                 use_X=True, use_R=True, seed=0, \
@@ -36,10 +34,8 @@ class Model(object):
         tf.set_random_seed(seed)
 
         # hyper-parameters
-        self.data = data
         self.mpnn_steps = mpnn_steps
         self.n_max, self.dim_node, self.dim_edge, self.dim_h, self.dim_f = n_max, dim_node, dim_edge, dim_h, dim_f
-        #self.val_num_samples = val_num_samples
         self.tol = tol
         self.refine_steps = refine_steps
         self.refine_mom = refine_mom
@@ -75,7 +71,7 @@ class Model(object):
 
         # embedding for nodes/atoms
         self.node_embed = self._embed_node(self.node)
-        
+
         # (20, 50, 50, 11) #(batch_size, n_max, n_max, dim_edge+1)
         self.edge_2 = tf.concat([self.edge, tf.tile( tf.reshape(self.n_atom, [self.batch_size, 1, 1, 1]), [1, self.n_max, self.n_max, 1] )], 3)
 
@@ -105,7 +101,7 @@ class Model(object):
         self.X_edge_wgt = self._edge_nn(self.edge_2, name = 'postX', reuse = False) #[batch_size, n_max, n_max, dim_h, dim_h]
         self.X_hidden = self._MPNN(self.X_edge_wgt, self.postZ_sample + self.node_embed, name = 'postX', reuse = False)
         self.X_pred = self._g_nn(self.X_hidden, self.node_embed, 3, name = 'postX', reuse = False, mask=mask, uname = 'X_pred')
-        
+
         # p(X|Z,G) -- posterior of X without sampling from latent space
         # used for iterative refinement of predictions
         # det stands for deterministic
@@ -120,18 +116,17 @@ class Model(object):
 
         self.saver = tf.train.Saver()
 
-    def train(self, D1_t, D2_t, D3_t, D4_t, D5_t, MS_t, load_path=None, save_path=None, w_reg=1e-3, epochs=10):
+    def train(self, D1_t, D2_t, D3_t, D4_t, D5_t, MS_t, load_path=None, w_reg=1e-3, epochs=10):
 
         save_path = os.path.join(load_path)
         print(save_path, flush=True)
 
+        mask = self.mask
         # objective functions
         cost_KLDZ = tf.reduce_mean( tf.reduce_sum( self._KLD(self.postZ_mu, self.postZ_lsgms, self.priorZ_mu, self.priorZ_lsgms), [1, 2]) ) # posterior | prior
         cost_KLD0 = tf.reduce_mean( tf.reduce_sum( self._KLD_zero(self.priorZ_mu, self.priorZ_lsgms), [1, 2]) ) # prior | N(0,1)
 
-        mask = self.mask
         cost_X = tf.reduce_mean( self.msd_func(self.X_pred, self.pos, mask) )
-
         cost_op = cost_X + cost_KLDZ + w_reg * cost_KLD0 #hyperparameters!
         train_op = tf.train.AdamOptimizer(learning_rate=3e-4).minimize(cost_op)
 
@@ -144,10 +139,9 @@ class Model(object):
 
         # training
         print('::: start training for %d epochs' % epochs)
-        num_epochs = epochs #2500
-        valaggr_mean = np.zeros(num_epochs)
-        valaggr_std = np.zeros(num_epochs)
-        for epoch in range(num_epochs):
+        valaggr_mean = np.zeros(epochs)
+        valaggr_std = np.zeros(epochs)
+        for epoch in range(epochs):
             [D1_t, D2_t, D3_t, D4_t, D5_t] = self._permutation([D1_t, D2_t, D3_t, D4_t, D5_t])
 
             trnscores = np.zeros((n_batch, 4))
@@ -156,10 +150,10 @@ class Model(object):
                 start_ = i * self.batch_size
                 end_ = start_ + self.batch_size
 
-                trnresult = self.sess.run([train_op, cost_op, cost_X, cost_KLDZ, cost_KLD0],
-                                    feed_dict = {self.node: D1_t[start_:end_], self.mask: D2_t[start_:end_],
-                                                 self.edge: D3_t[start_:end_], self.proximity: D4_t[start_:end_],
-                                                 self.pos: D5_t[start_:end_], self.trn_flag: True,
+                trnresult = self.sess.run([train_op, cost_op, cost_X, cost_KLDZ, cost_KLD0],\
+                                    feed_dict = {self.node: D1_t[start_:end_], self.mask: D2_t[start_:end_],\
+                                                 self.edge: D3_t[start_:end_], self.proximity: D4_t[start_:end_],\
+                                                 self.pos: D5_t[start_:end_], self.trn_flag: True,\
                                                  self.b_size: [self.batch_size]})
                 trnresult = trnresult[1:]
 
@@ -170,19 +164,8 @@ class Model(object):
             print(np.mean(trnscores,0), flush=True)
         if save_path is not None:
             self.saver.save(self.sess, save_path)
-            # keep track of the best model as well in the separate checkpoint
-            # it is done by copying the checkpoint
-            '''if valaggr_mean[epoch] == np.min(valaggr_mean[0:epoch+1]):
-                for ckpt_f in glob.glob(save_path + '*'):
-                    model_name_split = ckpt_f.split('/')
-                    model_path = '/'.join(model_name_split[:-1])
-                    model_name = model_name_split[-1]
-                    best_model_name = model_name.split('.')[0] + '_best.' + '.'.join(model_name.split('.')[1:])
-                    full_best_model_path = os.path.join(model_path, best_model_name)
-                    full_model_path = ckpt_f
-                    shutil.copyfile(full_model_path, full_best_model_path)'''
         self.sess.close()
-
+        
     def do_mask(self, vec, m):
         return tf.boolean_mask(vec, tf.reshape(tf.greater(m, tf.constant(0.5)), [self.n_max,]) )
 
