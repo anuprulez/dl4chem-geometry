@@ -10,10 +10,10 @@ import copy
 import os
 import zipfile
 
-    
+
 def getRMS(prb_mol, ref_pos, useFF=False):
     '''
-    Compute the root mean square distance 
+    Compute the root mean square distance
     between true and predicted conformation
     '''
     def optimizeWithFF(mol):
@@ -43,7 +43,8 @@ def getRMS(prb_mol, ref_pos, useFF=False):
         res = AllChem.AlignMol(prb_mol, ref_mol)
 
     return res
-        
+
+
 def _pos_to_proximity(pos, batch_size, n_max, mask, reuse=True): #[batch_size, n_max, 3]
 
     with tf.variable_scope('pos_to_proximity', reuse=reuse):
@@ -63,7 +64,8 @@ def _pos_to_proximity(pos, batch_size, n_max, mask, reuse=True): #[batch_size, n
         proximity = tf.matrix_set_diag(proximity, [[0] * n_max] * batch_size)
 
     return proximity
-    
+
+
 def extract_model(load_path):
     '''
     Extract files from model
@@ -71,7 +73,8 @@ def extract_model(load_path):
     dir_name = os.path.dirname(load_path)
     with zipfile.ZipFile(load_path, 'r') as zip_ref:
         zip_ref.extractall(dir_name)
-        
+
+
 def set_cpu(num_cpus):
     cpu_config = tf.ConfigProto(
         device_count={"CPU": num_cpus, "GPU": 1},
@@ -80,6 +83,7 @@ def set_cpu(num_cpus):
         allow_soft_placement=True
     )
     return cpu_config
+
 
 def predict(args):
     '''
@@ -92,19 +96,19 @@ def predict(args):
     val_num_samples = args.val_num_samples
     useFF = args.useFF
     refine_steps = args.refine_steps
-    refine_mom = float(args.refine_mom)
+    refine_mom = args.refine_mom
     use_X = args.use_X
     use_R = args.use_R
     load_path = args.path_model
     test_file = args.test_file
-    
+
     print('::: load data')
-    [D1_tst, D2_tst, D3_tst, D4_tst, D5_tst, molsup_tst] = pkl.load(open(test_file,'rb'))
+    [D1_tst, D2_tst, D3_tst, D4_tst, D5_tst, molsup_tst] = pkl.load(open(test_file, 'rb'))
 
     # maximum number of atoms
     n_max = D1_tst.shape[1]
 
-    print ('::: num test samples is ')
+    print('::: num test samples is ')
     print(D1_tst.shape, D3_tst.shape)
 
     print("::: load model " + load_path)
@@ -126,7 +130,7 @@ def predict(args):
         valscores_mean = np.zeros(val_size)
         valscores_std = np.zeros(val_size)
 
-        print ("::: testing model...")
+        print("::: testing model...")
         # get the variable names from the loaded tensorflow graph
         node = graph.get_tensor_by_name("node:0")
         mask = graph.get_tensor_by_name("mask:0")
@@ -139,15 +143,14 @@ def predict(args):
         PX_pred = graph.get_tensor_by_name("g_nnpostX_2/PX_pred:0")
         # define batch size variable
         b_size = tf.placeholder(dtype=tf.int32)
-        valres=[]
         for i in range(n_batch_val):
+            valres = list()
             start_ = i * val_batch_size
             end_ = start_ + val_batch_size
             # input data is repeated to get more than 1 predictions for a molecule and take average prediction
             node_val = np.repeat(D1_tst[start_:end_], val_num_samples, axis=0)
             mask_val = np.repeat(D2_tst[start_:end_], val_num_samples, axis=0)
             edge_val = np.repeat(D3_tst[start_:end_], val_num_samples, axis=0)
-            proximity_val = np.repeat(D4_tst[start_:end_], val_num_samples, axis=0)
             dict_val = {node: node_val, mask: mask_val, edge: edge_val, trn_flag: False, b_size: [batch_size]}
             D5_batch = sess.run(PX_pred, feed_dict=dict_val)
             # iterative refinement of posterior
@@ -157,15 +160,15 @@ def predict(args):
                 if use_X:
                     dict_val[pos] = D5_batch_pred
                 if use_R:
-                    pred_proximity = sess.run(pos_to_proximity, feed_dict={pos: D5_batch_pred, mask:mask_val, b_size: [batch_size]})
+                    pred_proximity = sess.run(pos_to_proximity, feed_dict={pos: D5_batch_pred, mask: mask_val, b_size: [batch_size]})
                     dict_val[proximity] = pred_proximity
                 D5_batch = sess.run(X_pred, feed_dict=dict_val)
                 D5_batch_pred = refine_mom * D5_batch_pred + (1-refine_mom) * D5_batch
-            valres=[]
             print("::: computing RMSD")
             for j in range(D5_batch_pred.shape[0]):
                 ms_v_index = int(j / val_num_samples) + start_
                 # compute error between true and predicted conformations
+                # 'D5_batch_pred' variable contains the predicted positions of atoms in a molecule in 3D space
                 res = getRMS(molsup_tst[ms_v_index], D5_batch_pred[j], useFF)
                 valres.append(res)
             valres = np.array(valres)
@@ -174,7 +177,8 @@ def predict(args):
             valres_std = np.std(valres, axis=1)
             valscores_mean[start_:end_] = valres_mean
             valscores_std[start_:end_] = valres_std
-        print ("Test scores: mean RMSD is {}, standard deviation (RMSD) is {}".format(np.mean(valscores_mean), np.mean(valscores_std)))
+        print("Maximum number of atoms: %d " % D1_tst.shape[1])
+        print("Test scores: mean RMSD is {}, standard deviation (RMSD) is {}".format(np.mean(valscores_mean), np.mean(valscores_std)))
 
 
 if __name__ == '__main__':
@@ -184,7 +188,7 @@ if __name__ == '__main__':
     parser.add_argument('--path_model', type=str, default='trained_model/tfmodel.zip')
     parser.add_argument('--model_name', type=str, default='model.ckpt')
     parser.add_argument('--batch_size', type=int, default=10, help='batch size')
-    parser.add_argument('--val_num_samples', type=int, default=5, help='number of samples from prior used for validation')
+    parser.add_argument('--val_num_samples', type=int, default=10, help='number of samples from prior used for validation')
     parser.add_argument('--use_X', action='store_true', default=False, help='use X as input for posterior of Z')
     parser.add_argument('--use_R', action='store_true', default=True, help='use R(X) as input for posterior of Z')
     parser.add_argument('--refine_mom', type=float, default=0.99, help='momentum used for refinement')

@@ -1,27 +1,18 @@
 import numpy as np
 import tensorflow as tf
-from rdkit import Chem
-from rdkit.Chem import AllChem
-import copy
-from tensorboardX import SummaryWriter
-from tf_rmsd import tf_centroid, tf_centroid_masked, tf_kabsch_rmsd_masked, tf_kabsch_rmsd
-import pdb
+from tf_rmsd import tf_centroid_masked, tf_kabsch_rmsd_masked
 import rmsd
-import glob
-import copy
 import os
-import shutil
-import pickle as pkl
 
 
 class Model(object):
 
-    def __init__(self, n_max, dim_node, dim_edge, dim_h, dim_f, \
-                batch_size, \
-                mpnn_steps=5, alignment_type='default', tol=1e-5, \
-                use_X=True, use_R=True, seed=0, \
+    def __init__(self, n_max, dim_node, dim_edge, dim_h, dim_f,
+                batch_size,
+                mpnn_steps=5, alignment_type='default', tol=1e-5,
+                use_X=True, use_R=True, seed=0,
                 refine_steps=0, refine_mom=0.99, prior_T=1, num_cpus=8):
-                
+
         self.cpu_config = tf.ConfigProto(
             device_count={"CPU": num_cpus, "GPU": 1},
             intra_op_parallelism_threads=num_cpus,
@@ -67,13 +58,13 @@ class Model(object):
         self.trn_flag = tf.placeholder(tf.bool, name="train_flag")
 
         # number of atoms
-        self.n_atom = tf.reduce_sum( tf.transpose(self.mask, [0, 2, 1]), 2) #[batch_size, 1]
+        self.n_atom = tf.reduce_sum(tf.transpose(self.mask, [0, 2, 1]), 2) #[batch_size, 1]
 
         # embedding for nodes/atoms
         self.node_embed = self._embed_node(self.node)
 
         # (20, 50, 50, 11) #(batch_size, n_max, n_max, dim_edge+1)
-        self.edge_2 = tf.concat([self.edge, tf.tile( tf.reshape(self.n_atom, [self.batch_size, 1, 1, 1]), [1, self.n_max, self.n_max, 1] )], 3)
+        self.edge_2 = tf.concat([self.edge, tf.tile(tf.reshape(self.n_atom, [self.batch_size, 1, 1, 1]), [1, self.n_max, self.n_max, 1])], 3)
 
         # p(Z|G) -- prior of Z
         self.priorZ_edge_wgt = self._edge_nn(self.edge_2, name = 'priorZ', reuse = False) #[batch_size, n_max, n_max, dim_h, dim_h]
@@ -84,9 +75,9 @@ class Model(object):
 
         # q(Z|R(X),G) -- posterior of Z, used R insted of X as input for simplicity, should be updated
         if use_R:
-            self.postZ_edge_wgt = self._edge_nn(tf.concat([self.edge_2, tf.reshape(self.proximity, [self.batch_size, self.n_max, self.n_max, 1])], 3),  name = 'postZ', reuse = False)
+            self.postZ_edge_wgt = self._edge_nn(tf.concat([self.edge_2, tf.reshape(self.proximity, [self.batch_size, self.n_max, self.n_max, 1])], 3), name = 'postZ', reuse = False)
         else:
-            self.postZ_edge_wgt = self._edge_nn(self.edge_2,  name = 'postZ', reuse = False) #[batch_size, n_max, n_max, dim_h, dim_h]
+            self.postZ_edge_wgt = self._edge_nn(self.edge_2,  name = 'postZ', reuse = False) # [batch_size, n_max, n_max, dim_h, dim_h]
 
         if use_X:
             self.postZ_hidden = self._MPNN(self.postZ_edge_wgt, self._embed_node(tf.concat([self.node, self.pos], 2)), name = 'postZ', reuse = False)
@@ -98,19 +89,19 @@ class Model(object):
         self.postZ_sample = self._draw_sample(self.postZ_mu, self.postZ_lsgms)
 
         # p(X|Z,G) -- posterior of X
-        self.X_edge_wgt = self._edge_nn(self.edge_2, name = 'postX', reuse = False) #[batch_size, n_max, n_max, dim_h, dim_h]
+        self.X_edge_wgt = self._edge_nn(self.edge_2, name = 'postX', reuse = False) # [batch_size, n_max, n_max, dim_h, dim_h]
         self.X_hidden = self._MPNN(self.X_edge_wgt, self.postZ_sample + self.node_embed, name = 'postX', reuse = False)
         self.X_pred = self._g_nn(self.X_hidden, self.node_embed, 3, name = 'postX', reuse = False, mask=mask, uname = 'X_pred')
 
         # p(X|Z,G) -- posterior of X without sampling from latent space
         # used for iterative refinement of predictions
         # det stands for deterministic
-        self.X_edge_wgt_det = self._edge_nn(self.edge_2, name = 'postX', reuse = True) #[batch_size, n_max, n_max, dim_h, dim_h]
+        self.X_edge_wgt_det = self._edge_nn(self.edge_2, name = 'postX', reuse = True) # [batch_size, n_max, n_max, dim_h, dim_h]
         self.X_hidden_det = self._MPNN(self.X_edge_wgt_det, self.postZ_mu + self.node_embed, name = 'postX', reuse = True)
         self.X_pred_det = self._g_nn(self.X_hidden_det, self.node_embed, 3, name = 'postX', reuse = True, mask=mask, uname = 'X_pred_det')
 
         # Prediction of X with p(Z|G) in the test phase
-        self.PX_edge_wgt = self._edge_nn(self.edge_2, name = 'postX', reuse = True) #[batch_size, n_max, n_max, dim_h, dim_h]
+        self.PX_edge_wgt = self._edge_nn(self.edge_2, name = 'postX', reuse = True) # [batch_size, n_max, n_max, dim_h, dim_h]
         self.PX_hidden = self._MPNN(self.PX_edge_wgt, self.priorZ_sample + self.node_embed, name = 'postX', reuse = True)
         self.PX_pred = self._g_nn(self.PX_hidden, self.node_embed, 3, name = 'postX', reuse = True, mask=mask, uname = 'PX_pred')
 
@@ -123,10 +114,10 @@ class Model(object):
 
         mask = self.mask
         # objective functions
-        cost_KLDZ = tf.reduce_mean( tf.reduce_sum( self._KLD(self.postZ_mu, self.postZ_lsgms, self.priorZ_mu, self.priorZ_lsgms), [1, 2]) ) # posterior | prior
-        cost_KLD0 = tf.reduce_mean( tf.reduce_sum( self._KLD_zero(self.priorZ_mu, self.priorZ_lsgms), [1, 2]) ) # prior | N(0,1)
+        cost_KLDZ = tf.reduce_mean(tf.reduce_sum( self._KLD(self.postZ_mu, self.postZ_lsgms, self.priorZ_mu, self.priorZ_lsgms), [1, 2])) # posterior | prior
+        cost_KLD0 = tf.reduce_mean(tf.reduce_sum( self._KLD_zero(self.priorZ_mu, self.priorZ_lsgms), [1, 2])) # prior | N(0,1)
 
-        cost_X = tf.reduce_mean( self.msd_func(self.X_pred, self.pos, mask) )
+        cost_X = tf.reduce_mean(self.msd_func(self.X_pred, self.pos, mask))
         cost_op = cost_X + cost_KLDZ + w_reg * cost_KLD0 #hyperparameters!
         train_op = tf.train.AdamOptimizer(learning_rate=3e-4).minimize(cost_op)
 
@@ -139,8 +130,6 @@ class Model(object):
 
         # training
         print('::: start training for %d epochs' % epochs)
-        valaggr_mean = np.zeros(epochs)
-        valaggr_std = np.zeros(epochs)
         for epoch in range(epochs):
             [D1_t, D2_t, D3_t, D4_t, D5_t] = self._permutation([D1_t, D2_t, D3_t, D4_t, D5_t])
 
@@ -167,7 +156,7 @@ class Model(object):
         self.sess.close()
         
     def do_mask(self, vec, m):
-        return tf.boolean_mask(vec, tf.reshape(tf.greater(m, tf.constant(0.5)), [self.n_max,]) )
+        return tf.boolean_mask(vec, tf.reshape(tf.greater(m, tf.constant(0.5)), [self.n_max,]))
 
     def kabsch_msd(self, frames, targets, masks):
         losses = []
@@ -186,7 +175,7 @@ class Model(object):
         frames -= tf.reduce_mean(frames, axis = 1, keepdims = True)
         targets -= tf.reduce_mean(targets, axis = 1, keepdims = True)
 
-        loss = tf.stack([rmsd.squared_deviation( self.do_mask(frames[i], masks[i]), self.do_mask(targets[i], masks[i]) ) for i in range(self.batch_size)], 0)
+        loss = tf.stack([rmsd.squared_deviation(self.do_mask(frames[i], masks[i]), self.do_mask(targets[i], masks[i])) for i in range(self.batch_size)], 0)
         return loss / tf.reduce_sum(masks, axis=[1,2])
 
     def linear_transform_msd(self, frames, targets, masks):
@@ -353,20 +342,20 @@ class Model(object):
         return proximity
 
 
-    def _KLD(self, mu0, lsgm0, mu1, lsgm1):# [batch_size, n_max, dim_h]
+    def _KLD(self, mu0, lsgm0, mu1, lsgm1): # [batch_size, n_max, dim_h]
 
         var0 = tf.exp(lsgm0)
         var1 = tf.exp(lsgm1)
         a = tf.div( var0 + 1e-5, var1 + 1e-5)
-        b = tf.div( tf.square( tf.subtract(mu1, mu0) ), var1 + 1e-5)
-        c = tf.log( tf.div(var1 + 1e-5, var0 + 1e-5 ) + 1e-5)
+        b = tf.div( tf.square(tf.subtract(mu1, mu0)), var1 + 1e-5)
+        c = tf.log( tf.div(var1 + 1e-5, var0 + 1e-5) + 1e-5)
 
         kld = 0.5 * tf.reduce_sum(a + b - 1 + c, 2, keepdims = True) * self.mask
 
         return kld
 
 
-    def _KLD_zero(self, mu0, lsgm0):# [batch_size, n_max, dim_h]
+    def _KLD_zero(self, mu0, lsgm0): # [batch_size, n_max, dim_h]
 
         a = tf.exp(lsgm0) + tf.square(mu0)
         b = 1 + lsgm0
