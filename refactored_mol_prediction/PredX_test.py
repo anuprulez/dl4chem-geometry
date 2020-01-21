@@ -1,5 +1,3 @@
-from __future__ import print_function
-
 import pickle as pkl
 import numpy as np
 import argparse
@@ -108,10 +106,11 @@ def predict(args):
     # maximum number of atoms
     n_max = D1_tst.shape[1]
 
-    print('::: num test samples is ')
+    print('::: size of test data ')
     print(D1_tst.shape, D3_tst.shape)
-
+    print('::: num of molecules is %d' % D1_tst.shape[0])
     print("::: load model " + load_path)
+
     extract_model(load_path)
 
     tf.reset_default_graph()
@@ -175,25 +174,34 @@ def predict(args):
             valres = np.reshape(valres, (val_batch_size, val_num_samples))
             valres_mean = np.mean(valres, axis=1)
             valres_std = np.std(valres, axis=1)
+            print("::: batch {} test scores: mean RMSD is {}, standard deviation (RMSD) is {}".format(i + 1, valres_mean[0], valres_std[0]))
             valscores_mean[start_:end_] = valres_mean
             valscores_std[start_:end_] = valres_std
-        print("Maximum number of atoms: %d " % D1_tst.shape[1])
-        print("Test scores: mean RMSD is {}, standard deviation (RMSD) is {}".format(np.mean(valscores_mean), np.mean(valscores_std)))
+        print()
+        print("Overall test scores: mean RMSD is {}, standard deviation (RMSD) is {}".format(np.mean(valscores_mean), np.mean(valscores_std)))
 
 
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Test network')
-    parser.add_argument('--test_file', type=str, default='data/mol_test.p')
-    parser.add_argument('--path_model', type=str, default='trained_model/tfmodel.zip')
-    parser.add_argument('--model_name', type=str, default='model.ckpt')
+    
+    parser.add_argument('--test_file', type=str, help="file for testing")
+    parser.add_argument('--path_model', type=str, help="path to the zipped model")
+    parser.add_argument('--model_name', type=str, help='base name for the model')
+    
+    # the following parameters should not be changed
+    # ---------------------------------------------------
+    # the value of batch_size parameter should be same as used during training
     parser.add_argument('--batch_size', type=int, default=10, help='batch size')
+    # the number of samples drawn for each molecule
     parser.add_argument('--val_num_samples', type=int, default=10, help='number of samples from prior used for validation')
     parser.add_argument('--use_X', action='store_true', default=False, help='use X as input for posterior of Z')
     parser.add_argument('--use_R', action='store_true', default=True, help='use R(X) as input for posterior of Z')
     parser.add_argument('--refine_mom', type=float, default=0.99, help='momentum used for refinement')
-    parser.add_argument('--refine_steps', type=int, default=5, help='number of refinement steps if requested')
+    parser.add_argument('--refine_steps', type=int, default=0, help='number of refinement steps if requested')
     parser.add_argument('--useFF', default=True, action='store_true', help='use force field minimisation if testing')
+    # -----------------------------------------------------
+    # number of CPUs. Can be changed depending on the availability
     parser.add_argument('--num_cpus', default=8, help='number of CPUs')
 
     args = parser.parse_args()

@@ -1,1 +1,1 @@
-python PredX_train.py --datafile data/ --mpnn_steps 5 --num_epochs 1 --loaddir checkpoints/model.ckpt
+python PredX_train.py --mpnn_steps 5 --num_epochs 3 --model_name model.ckpt --train_molvec data/COD_molvec.p --train_molset data/COD_molset.p --test_file data/test_molecule.p --zipdir trained_model/tfmodel.zip --ckptdir checkpoints/ --model_name model.ckpt --test_size 0.25 --num_epochs 2

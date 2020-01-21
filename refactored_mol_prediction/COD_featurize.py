@@ -1,32 +1,37 @@
-from __future__ import print_function
-
+import os
 from rdkit import Chem
-from rdkit.Chem import AllChem
 import numpy as np
 from sklearn.metrics.pairwise import euclidean_distances
 import pickle as pkl
-import copy
 import sparse
 import argparse
+
+
 parser = argparse.ArgumentParser()
-
-parser.add_argument('--virtual_node', action='store_true')
-parser.add_argument('--savedir', type=str, default='./')
 parser.add_argument('--loadfile', type=str, default='./')
-parser.add_argument('--num_mol', type=str, default=20)
-parser.add_argument('--num_atoms', type=str, default=20)
-
-
+parser.add_argument('--num_mol', type=int, default=100)
+parser.add_argument('--max_atoms', type=int, default=50)
+parser.add_argument('--min_atoms', type=int, default=2)
+parser.add_argument('--atom_dim', type=str, default=35)
+parser.add_argument('--edge_dim', type=str, default=10)
 args = parser.parse_args()
+
+
+data = 'COD'
+n_min = args.min_atoms
+n_max = args.max_atoms
+atom_dim = args.atom_dim
+edge_dim = args.edge_dim
+
 
 def to_onehot(val, cat, etc=0):
 
-    onehot=np.zeros(len(cat))
+    onehot = np.zeros(len(cat))
     for ci, c in enumerate(cat):
         if val == c:
-            onehot[ci]=1
+            onehot[ci] = 1
 
-    if etc==1 and np.sum(onehot)==0:
+    if etc == 1 and np.sum(onehot) == 0:
         print(val)
 
     return onehot
@@ -43,30 +48,30 @@ def atomFeatures(a, ri_a):
 
         return onehot
 
-    v1 = to_onehot(a.GetSymbol(), ['C','N','O','F','Cl','Br','I','S','B','Si','P','Te','Se','Ge','As'], 1)
-    v2 = to_onehot(str(a.GetHybridization()), ['SP','SP2','SP3','SP3D','SP3D2'], 1)
+    v1 = to_onehot(a.GetSymbol(), ['C', 'N', 'O', 'F', 'Cl', 'Br', 'I', 'S', 'B', 'Si', 'P', 'Te', 'Se', 'Ge', 'As'], 1)
+    v2 = to_onehot(str(a.GetHybridization()), ['SP', 'SP2', 'SP3', 'SP3D', 'SP3D2'], 1)
 
     v3 = [a.GetAtomicNum(), a.GetDegree(), a.GetFormalCharge(), a.GetTotalNumHs(), atom.GetImplicitValence(), a.GetNumRadicalElectrons(), int(a.GetIsAromatic())]
     v4 = _ringSize_a(a, ri_a)
 
     v5 = np.zeros(3)
     try:
-        tmp = to_onehot(a.GetProp('_CIPCode'), ['R','S'], 1)
+        tmp = to_onehot(a.GetProp('_CIPCode'), ['R', 'S'], 1)
         v5[0] = tmp[0]
         v5[1] = tmp[1]
     except:
-        v5[2]=1
+        v5[2] = 1
 
     v5 = v5[:2]
 
-    return np.concatenate([v1,v2,v3,v4,v5], axis=0)
+    return np.concatenate([v1, v2, v3, v4, v5], axis=0)
 
 
 def bondFeatures(bbs, samering, shortpath):
 
-    if len(bbs)==1:
-        v1 =  to_onehot(str(bbs[0].GetBondType()), ['SINGLE', 'DOUBLE', 'TRIPLE', 'AROMATIC'], 1)
-        v2 = to_onehot(str(bbs[0].GetStereo()), ['STEREOZ', 'STEREOE','STEREOANY','STEREONONE'], 1)
+    if len(bbs) == 1:
+        v1 = to_onehot(str(bbs[0].GetBondType()), ['SINGLE', 'DOUBLE', 'TRIPLE', 'AROMATIC'], 1)
+        v2 = to_onehot(str(bbs[0].GetStereo()), ['STEREOZ', 'STEREOE', 'STEREOANY', 'STEREONONE'], 1)
         v2 = v2[:2]
         v3 = [int(bbs[0].GetIsConjugated()), int(bbs[0].IsInRing()), samering, shortpath]
     else:
@@ -74,20 +79,10 @@ def bondFeatures(bbs, samering, shortpath):
         v2 = np.zeros(2)
         v3 = [0, 0, samering, shortpath]
 
-    return np.concatenate([v1,v2,v3], axis=0)
+    return np.concatenate([v1, v2, v3], axis=0)
 
 
-data='COD'
-n_min=2
-n_max=int(args.num_atoms)
-atom_dim=35
-edge_dim=10
-virtual_node = args.virtual_node
-print(virtual_node, flush=True)
-if virtual_node:
-    edge_dim += 1
-
-[mollist, smilist] = pkl.load(open(args.loadfile,'rb'))
+[mollist, smilist] = pkl.load(open(args.loadfile, 'rb'))
 print(len(mollist))
 max_mol = int(args.num_mol)
 
@@ -99,8 +94,10 @@ D5 = []
 mollist2 = []
 smilist2 = []
 print(len(mollist), flush=True)
+# iterate over all molecules
 for i in range(max_mol):
-    if i % 1000 == 0: print(i, flush=True)
+    if i % 1000 == 0:
+        print(i, flush=True)
 
     smi = smilist[i]
     mol = mollist[i]
@@ -117,68 +114,42 @@ for i in range(max_mol):
 
     pos = mol.GetConformer().GetPositions()
 
-    if virtual_node:
-        pos = np.vstack([pos, np.zeros(3)])
-        assert n == pos.shape[0] - 1
-    else:
-        assert n==pos.shape[0]
+    assert n == pos.shape[0]
 
     mollist2.append(mol)
     smilist2.append(smi)
 
-    if virtual_node:
-        node = np.zeros((n_max+1, atom_dim))
-        mask = np.zeros((n_max+1, 1))
-    else:
-        node = np.zeros((n_max, atom_dim))
-        mask = np.zeros((n_max, 1))
+    node = np.zeros((n_max, atom_dim))
+    mask = np.zeros((n_max, 1))
 
     for j in range(n):
         atom = mol.GetAtomWithIdx(j)
-        node[j, :]=atomFeatures(atom, ri_a)
-        mask[j, 0]=1
-    if virtual_node:
-        mask[n, 0] = 1
+        node[j, :] = atomFeatures(atom, ri_a)
+        mask[j, 0] = 1
 
-    if virtual_node:
-        edge = np.zeros((n_max+1, n_max+1, edge_dim))
-        edge[:n, n, 0] = 1
-        edge[n, :n, 0] = 1
-    else:
-        edge = np.zeros((n_max, n_max, edge_dim))
+    edge = np.zeros((n_max, n_max, edge_dim))
 
-    for j in range(n-1):
-        for k in range(j+1, n):
+    for j in range(n - 1):
+        for k in range(j + 1, n):
             molpath = Chem.GetShortestPath(mol, j, k)
             shortpath = len(molpath) - 1
-            assert shortpath>0
+            assert shortpath > 0
 
             samering = 0
             for alist in ri_a:
                 if j in alist and k in alist:
                     samering = 1
 
-            bond = [mol.GetBondBetweenAtoms(molpath[mm], molpath[mm+1]) for mm in range(shortpath)]
+            bond = [mol.GetBondBetweenAtoms(molpath[mm], molpath[mm + 1]) for mm in range(shortpath)]
 
-            if virtual_node:
-                edge[j, k, :] = np.pad(bondFeatures(bond, samering, shortpath), (1, 0), 'constant')
-                edge[k, j, :] = edge[j, k, :]
-            else:
-                edge[j, k, :] = bondFeatures(bond, samering, shortpath)
-                edge[k, j, :] = edge[j, k, :]
+            edge[j, k, :] = bondFeatures(bond, samering, shortpath)
+            edge[k, j, :] = edge[j, k, :]
 
-    if virtual_node:
-        proximity = np.zeros((n_max+1, n_max+1))
-        proximity[:n+1, :n+1] = euclidean_distances(pos)
+    proximity = np.zeros((n_max, n_max))
+    proximity[:n, :n] = euclidean_distances(pos)
+    pos2 = np.zeros((n_max, 3))
+    pos2[:n] = pos
 
-        pos2 = np.zeros((n_max+1, 3))
-        pos2[:n+1] = pos
-    else:
-        proximity = np.zeros((n_max, n_max))
-        proximity[:n, :n] = euclidean_distances(pos)
-
-        pos2 = np.zeros((n_max, 3))
-        pos2[:n] = pos
     D1.append(np.array(node, dtype=int))
     D2.append(np.array(mask, dtype=int))
     D3.append(np.array(edge, dtype=int))
@@ -200,21 +171,18 @@ D2 = sparse.COO.from_numpy(D2)
 D3 = sparse.COO.from_numpy(D3)
 print([D1.nbytes, D3.nbytes])
 
-if virtual_node:
-    molvec_fname = args.savedir + data +'_molvec_'+str(n_max)+'_vn.p'
-    molset_fname = args.savedir + data + '_molset_' + str(n_max) + '_vn.p'
-else:
-    molvec_fname = args.savedir + data +'_molvec_'+str(n_max)+'.p'
-    molset_fname = args.savedir + data + '_molset_' + str(n_max) + '.p'
+save_dir = os.path.dirname(args.loadfile)
+molvec_fname = save_dir + '/' + data + '_molvec.p'
+molset_fname = save_dir + '/' + data + '_molset.p'
 
 print(molvec_fname)
 print(molset_fname)
 
-with open(molvec_fname,'wb') as f:
+with open(molvec_fname, 'wb') as f:
     pkl.dump([D1, D2, D3, D4, D5], f)
 
 mollist2 = np.array(mollist2)
 smilist2 = np.array(smilist2)
 
-with open(molset_fname,'wb') as f:
+with open(molset_fname, 'wb') as f:
     pkl.dump([mollist2, smilist2], f)
