@@ -10,10 +10,10 @@
 ## How to execute the scripts
 
 1. Create features from molecular data:
-    - Execute `run_cod_featurize.sh`. Change the number of molecules by setting the parameter `num_mol`
+    - Execute `sh run_cod_featurize.sh`. Change the number of molecules by setting the parameter `num_mol`
 
 2. Train on the molecular features:
-    - Execute `run_training.sh`. Change the number of training iterations and the size of test data by setting parameters `num_epochs` and `test_size` respectively.
+    - Execute `sh run_training.sh`. Change the number of training iterations and the size of test data by setting parameters `num_epochs` and `test_size` respectively.
     
 3. Test/predict the 3D position of atoms in test molecules:
-    - Execute `run_test.sh`
+    - Execute `sh run_test.sh`

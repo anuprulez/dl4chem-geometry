@@ -192,7 +192,7 @@ if __name__ == '__main__':
     # the following parameters should not be changed
     # ---------------------------------------------------
     # the value of batch_size parameter should be same as used during training
-    parser.add_argument('--batch_size', type=int, default=10, help='batch size')
+    parser.add_argument('--batch_size', type=int, default=20, help='batch size')
     # the number of samples drawn for each molecule
     parser.add_argument('--val_num_samples', type=int, default=10, help='number of samples from prior used for validation')
     parser.add_argument('--use_X', action='store_true', default=False, help='use X as input for posterior of Z')

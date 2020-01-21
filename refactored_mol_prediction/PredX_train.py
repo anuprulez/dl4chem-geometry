@@ -102,18 +102,18 @@ if __name__ == '__main__':
     parser.add_argument('--ckptdir', type=str, help="directory to keep the model checkpoints")
     parser.add_argument('--model_name', type=str, help="comman name for checkpoint model files")
     parser.add_argument('--test_size', type=float, help='size of test data')
-    
+
     # training parameters
     parser.add_argument('--alignment_type', type=str, default='kabsch', choices=['default', 'linear', 'kabsch'])
     parser.add_argument('--seed', type=int, default=1334, help='random seed for experiments')
-    parser.add_argument('--batch_size', type=int, default=10, help='batch size')
+    parser.add_argument('--batch_size', type=int, default=20, help='batch size')
     parser.add_argument('--tol', type=float, default=1e-5, help='tolerance for masking used in svd calculation')
     parser.add_argument('--prior_T', type=float, default=1, help='temperature to use for the prior')
     parser.add_argument('--use_X', action='store_true', default=False, help='use X as input for posterior of Z')
     parser.add_argument('--use_R', action='store_true', default=True, help='use R(X) as input for posterior of Z')
     parser.add_argument('--w_reg', type=float, default=1e-5, help='weight for conditional prior regularization')
     parser.add_argument('--refine_mom', type=float, default=0.99, help='momentum used for refinement')
-    parser.add_argument('--refine_steps', type=int, default=5, help='number of refinement steps if requested')
+    parser.add_argument('--refine_steps', type=int, default=0, help='number of refinement steps if requested')
     parser.add_argument('--useFF', default=True, action='store_true', help='use force field minimisation if testing')
     parser.add_argument('--dim_h', type=int, default=50, help='dimension of the hidden')
     parser.add_argument('--dim_f', type=int, default=100, help='dimension of the hidden')
