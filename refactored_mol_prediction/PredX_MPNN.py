@@ -110,7 +110,6 @@ class Model(object):
     def train(self, D1_t, D2_t, D3_t, D4_t, D5_t, MS_t, load_path=None, w_reg=1e-3, epochs=10):
 
         save_path = os.path.join(load_path)
-        print(save_path, flush=True)
 
         mask = self.mask
         # objective functions
@@ -135,7 +134,7 @@ class Model(object):
 
             trnscores = np.zeros((n_batch, 4))
             for i in range(n_batch):
-                print("Epoch: %d, batch: %d" % (epoch, i))
+                print("Epoch: %d, batch: %d" % (epoch + 1, i + 1))
                 start_ = i * self.batch_size
                 end_ = start_ + self.batch_size
 

@@ -88,7 +88,7 @@ def train(args, exp=None):
         zipf = zipfile.ZipFile(args.zipdir, 'w')
         zipCompress(os.path.dirname(save_path), zipf)
         zipf.close()
-        print("::: zipped model ...")
+        print("::: zipped model at %s" % args.zipdir)
 
 
 if __name__ == '__main__':
