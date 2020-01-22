@@ -174,7 +174,7 @@ def predict(args):
             valres = np.reshape(valres, (val_batch_size, val_num_samples))
             valres_mean = np.mean(valres, axis=1)
             valres_std = np.std(valres, axis=1)
-            print("::: batch {} test scores: mean RMSD is {}, standard deviation (RMSD) is {}".format(i + 1, valres_mean[0], valres_std[0]))
+            print("::: batch {}/{} test scores: mean RMSD is {}, standard deviation (RMSD) is {}".format(i + 1, n_batch_val, valres_mean[0], valres_std[0]))
             valscores_mean[start_:end_] = valres_mean
             valscores_std[start_:end_] = valres_std
         print()
@@ -199,7 +199,7 @@ if __name__ == '__main__':
     parser.add_argument('--use_R', action='store_true', default=True, help='use R(X) as input for posterior of Z')
     parser.add_argument('--refine_mom', type=float, default=0.99, help='momentum used for refinement')
     parser.add_argument('--refine_steps', type=int, default=0, help='number of refinement steps if requested')
-    parser.add_argument('--useFF', default=True, action='store_true', help='use force field minimisation if testing')
+    parser.add_argument('--useFF', default=False, action='store_true', help='use force field minimisation if testing')
     # -----------------------------------------------------
     # number of CPUs. Can be changed depending on the availability
     parser.add_argument('--num_cpus', default=8, help='number of CPUs')

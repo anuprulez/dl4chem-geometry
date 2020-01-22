@@ -54,23 +54,27 @@ def train(args, exp=None):
     D4_trn = D4[:ntrn]
     D5_trn = D5[:ntrn]
     molsup_trn = molsup[:ntrn]
-    # test data
-    D1_tst = D1[ntrn:ntrn+ntst]
-    D2_tst = D2[ntrn:ntrn+ntst]
-    D3_tst = D3[ntrn:ntrn+ntst]
-    D4_tst = D4[ntrn:ntrn+ntst]
-    D5_tst = D5[ntrn:ntrn+ntst]
-    molsup_tst = molsup[ntrn:ntrn+ntst]
-
-    # set aside test data
-    with open(args.test_file, 'wb') as f:
-        pkl.dump([D1_tst, D2_tst, D3_tst, D4_tst, D5_tst, molsup_tst], f)
 
     print('::: size of training data ')
     print(D1_trn.shape, D3_trn.shape)
+    print('::: num of training samples ')
+    print(D1_trn.shape[0])
 
-    print('::: size of test data')
-    print(D1_tst.shape, D3_tst.shape)
+    # test data
+    if ntst > 0:
+        D1_tst = D1[ntrn:ntrn+ntst]
+        D2_tst = D2[ntrn:ntrn+ntst]
+        D3_tst = D3[ntrn:ntrn+ntst]
+        D4_tst = D4[ntrn:ntrn+ntst]
+        D5_tst = D5[ntrn:ntrn+ntst]
+        molsup_tst = molsup[ntrn:ntrn+ntst]
+
+        print('::: size of test data')
+        print(D1_tst.shape, D3_tst.shape)
+
+        # set aside test data
+        with open(args.test_file, 'wb') as f:
+            pkl.dump([D1_tst, D2_tst, D3_tst, D4_tst, D5_tst, molsup_tst], f)
 
     del D1, D2, D3, D4, D5, molsup
 
